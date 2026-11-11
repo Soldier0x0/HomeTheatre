@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-label="Original cinematic illustration for cartographer">
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2=".9" y2="1"><stop stop-color="#101c2a"/><stop offset=".58" stop-color="#4b6575"/><stop offset="1" stop-color="#080b11"/></linearGradient>
+ <radialGradient id="glow"><stop stop-color="d7bd79" stop-opacity=".95"/><stop offset=".45" stop-color="d7bd79" stop-opacity=".35"/><stop offset="1" stop-color="d7bd79" stop-opacity="0"/></radialGradient>
+ <radialGradient id="planet"><stop stop-color="#bdddef"/><stop offset=".35" stop-color="d7bd79"/><stop offset="1" stop-color="#4b6575"/></radialGradient>
+ <linearGradient id="window" x2="0" y2="1"><stop stop-color="#ffd9a2"/><stop offset="1" stop-color="d7bd79" stop-opacity=".3"/></linearGradient>
+ <linearGradient id="water" x2="0" y2="1"><stop stop-color="#4b6575"/><stop offset="1" stop-color="#07131d"/></linearGradient>
+ <linearGradient id="spot"><stop stop-color="d7bd79" stop-opacity=".16"/><stop offset="1" stop-color="d7bd79" stop-opacity="0"/></linearGradient>
+ <pattern id="stars" width="173" height="149" patternUnits="userSpaceOnUse"><circle cx="22" cy="28" r="1.7" fill="#fff" opacity=".64"/><circle cx="104" cy="76" r="1.1" fill="#fff" opacity=".48"/><circle cx="143" cy="18" r="1.3" fill="d7bd79" opacity=".7"/><circle cx="62" cy="128" r="1" fill="#fff" opacity=".35"/></pattern>
+ <linearGradient id="shade" x2="1"><stop stop-color="#04070c" stop-opacity=".58"/><stop offset=".43" stop-color="#04070c" stop-opacity=".15"/><stop offset="1" stop-color="#04070c" stop-opacity=".1"/></linearGradient>
+</defs>
+<rect width="1600" height="900" fill="url(#bg)"/><rect width="1600" height="900" fill="url(#glow)" opacity=".28"/><rect width="1600" height="900" fill="url(#stars)" opacity=".58"/>
+<path d="M60 900 520 310l250 274 215-392 556 708z" fill="#182b3b"/><path d="M90 900 520 400l210 236 254-400 502 664z" fill="#294658"/><path d="M772 584 985 192l236 331-93-45-88 77-91-53-98 82z" fill="d7bd79" opacity=".52"/><g fill="none" stroke="#d9d0a2" stroke-opacity=".34" stroke-width="3"><path d="M190 786q250-188 500 0t520-4"/><path d="M243 837q235-170 450 2t517 0"/><path d="M356 710q176-138 356 0t379-8"/><path d="M585 540q107-88 214 0"/></g><circle cx="1290" cy="228" r="86" fill="none" stroke="d7bd79" stroke-width="4" opacity=".7"/><path d="m1290 155 18 73-18 73-18-73z" fill="d7bd79"/>
+<rect width="1600" height="900" fill="url(#shade)"/>
+<rect y="760" width="1600" height="140" fill="#06090e" opacity=".1"/>
+</svg>

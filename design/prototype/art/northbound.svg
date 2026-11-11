@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-label="Original cinematic illustration for northbound">
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2=".9" y2="1"><stop stop-color="#081b30"/><stop offset=".58" stop-color="#305a83"/><stop offset="1" stop-color="#080b11"/></linearGradient>
+ <radialGradient id="glow"><stop stop-color="bbd8e9" stop-opacity=".95"/><stop offset=".45" stop-color="bbd8e9" stop-opacity=".35"/><stop offset="1" stop-color="bbd8e9" stop-opacity="0"/></radialGradient>
+ <radialGradient id="planet"><stop stop-color="#bdddef"/><stop offset=".35" stop-color="bbd8e9"/><stop offset="1" stop-color="#305a83"/></radialGradient>
+ <linearGradient id="window" x2="0" y2="1"><stop stop-color="#ffd9a2"/><stop offset="1" stop-color="bbd8e9" stop-opacity=".3"/></linearGradient>
+ <linearGradient id="water" x2="0" y2="1"><stop stop-color="#305a83"/><stop offset="1" stop-color="#07131d"/></linearGradient>
+ <linearGradient id="spot"><stop stop-color="bbd8e9" stop-opacity=".16"/><stop offset="1" stop-color="bbd8e9" stop-opacity="0"/></linearGradient>
+ <pattern id="stars" width="173" height="149" patternUnits="userSpaceOnUse"><circle cx="22" cy="28" r="1.7" fill="#fff" opacity=".64"/><circle cx="104" cy="76" r="1.1" fill="#fff" opacity=".48"/><circle cx="143" cy="18" r="1.3" fill="bbd8e9" opacity=".7"/><circle cx="62" cy="128" r="1" fill="#fff" opacity=".35"/></pattern>
+ <linearGradient id="shade" x2="1"><stop stop-color="#04070c" stop-opacity=".58"/><stop offset=".43" stop-color="#04070c" stop-opacity=".15"/><stop offset="1" stop-color="#04070c" stop-opacity=".1"/></linearGradient>
+</defs>
+<rect width="1600" height="900" fill="url(#bg)"/><rect width="1600" height="900" fill="url(#glow)" opacity=".28"/><rect width="1600" height="900" fill="url(#stars)" opacity=".58"/>
+<path d="M0 610 225 340l140 165 270-344 224 310 190-209 214 269 160-177 177 205v341H0z" fill="#183651"/><path d="M250 506 635 161l224 310 190-209 214 269-171-107-99 57-121-70-104 79-132-54-102 68z" fill="#b9d2e3" opacity=".7"/><path d="M0 760h1600v140H0z" fill="#101b29"/><path d="M0 807h1600" stroke="#94acc0" stroke-width="7" opacity=".6"/><path d="M420 715h725l-78 150H492z" fill="#172534" stroke="bbd8e9" stroke-width="5"/><path d="M524 744h112v43H524zM690 744h112v43H690zM856 744h112v43H856z" fill="bbd8e9" opacity=".7"/>
+<rect width="1600" height="900" fill="url(#shade)"/>
+<rect y="760" width="1600" height="140" fill="#06090e" opacity=".1"/>
+</svg>

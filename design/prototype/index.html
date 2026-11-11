@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Home Theater — TV UI Prototype (MOCK DATA)</title>
+  <meta name="theme-color" content="#08090c" />
+  <title>Home Theater | Film Library</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -13,29 +14,33 @@
   <header class="hero" id="hero" aria-label="Featured"></header>
 
   <main id="shelves" aria-label="Library shelves"></main>
-
-  <!-- Detail overlay (MOCK) -->
+  <footer class="credits" id="credits"><a href="https://www.themoviedb.org/" target="_blank" rel="noreferrer" aria-label="The Movie Database"><img src="art/tmdb/tmdb-logo.svg" alt="TMDb" /></a><span>Film and series metadata and artwork from TMDb.</span><span>IMDb rating snapshots checked 11 Nov 2026.</span><a href="https://www.imdb.com/" target="_blank" rel="noreferrer">IMDb</a><span>This prototype is not endorsed or certified by TMDb or IMDb.</span></footer>
+  <!-- Detail overlay uses prototype sample data -->
   <div class="overlay" id="detailOverlay" role="dialog" aria-modal="true" aria-label="Title details">
-    <div class="sheet">
-      <h2 id="detailTitle"></h2>
-      <div class="type-line" id="detailType"></div>
-      <div class="meta-chips" id="detailCaps"></div>
-      <p class="desc" id="detailDesc" style="margin-top:14px"></p>
-      <div class="actions" style="margin-top:8px">
-        <button class="pill">▶&nbsp;&nbsp;Play (mock)</button>
-        <button class="pill ghost" id="detailClose">Close</button>
+    <div class="sheet detail-sheet">
+      <div class="detail-art">
+        <img id="detailArtwork" src="" alt="">
+        <div class="detail-actions" aria-label="Title actions">
+          <button class="detail-action" data-detail-action="play" aria-label="Play title" title="Play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.8v14.4L19 12 7 4.8Z"/></svg></button>
+          <button class="detail-action" data-detail-action="watchlist" aria-label="Add to watchlist" aria-pressed="false" title="Add to watchlist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button class="detail-action" data-detail-action="watched" aria-label="Mark as watched" aria-pressed="false" title="Mark as watched"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg></button>
+        </div>
       </div>
-      <p class="note">Prototype uses mock data. Playback is not implemented yet.</p>
-    </div>
-  </div>
-
-  <!-- Passwordless profile switcher (confirmed product rule: no PIN/password) -->
-  <div class="overlay" id="profileOverlay" role="dialog" aria-modal="true" aria-label="Switch profile">
-    <div class="sheet" style="text-align:center">
-      <h2>Who's watching?</h2>
-      <p class="type-line">Select a profile — no password required.</p>
-      <div class="profile-grid" id="profileGrid"></div>
-      <p class="note">Press Enter to switch · Escape to cancel · P to reopen</p>
+      <section class="detail-info">
+        <p class="catalog-kicker">TITLE DETAILS</p>
+        <h2 id="detailTitle"></h2>
+        <div class="type-line" id="detailType"></div>
+        <p class="desc" id="detailDesc"></p>
+        <p class="detail-feedback" id="detailFeedback" aria-live="polite">Prototype actions use sample data.</p>
+      </section>
+      <section class="series-browser" id="seriesBrowser" aria-label="Series episodes" hidden>
+        <div class="series-browser-heading">
+          <div><p class="catalog-kicker">SERIES GUIDE</p><h3>Episodes</h3></div>
+          <p id="seriesEpisodeCount" class="series-episode-count"></p>
+        </div>
+        <div class="season-selector" id="seasonSelector" role="group" aria-label="Choose a season"></div>
+        <div class="episode-grid" id="episodeGrid"></div>
+      </section>
     </div>
   </div>
 

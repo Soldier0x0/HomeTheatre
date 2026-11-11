@@ -1,46 +1,63 @@
-// MOCK DATA — sample content only. No server, no real media, no external URLs.
-// Gradient "artwork" is generated locally so the prototype works offline.
+// Real film examples and metadata for this visual demo. Viewing progress is invented demo data.
+// Film metadata and artwork: TMDb. This is not a live library or playback integration.
 window.MOCK = {
-  profiles: [
-    { id: "p1", name: "Harsha", color: "#F5A524", initial: "H" },
-    { id: "p2", name: "Sahana", color: "#5AB0FF", initial: "S" },
-    { id: "p3", name: "Guest",  color: "#8E8E93", initial: "G" },
-  ],
   hero: [
-    { id: "m1", title: "The Silent Orbit", type: "Movie", genres: ["Sci-Fi", "Drama"],
-      meta: "2025 · 2h 18m", rating: "PG-13", caps: ["4K", "HDR", "CC"],
-      desc: "A lone station engineer keeps humanity's last orbital relay alive, until a signal arrives that nobody sent.",
-      art: "linear-gradient(135deg,#0b1e3a 0%,#1c3d6e 45%,#3a6ea5 100%)" },
-    { id: "m2", title: "Ember Lane", type: "Series", genres: ["Mystery"],
-      meta: "2024 · 3 Seasons", rating: "TV-14", caps: ["4K", "CC", "AD"],
-      desc: "Six neighbors. One burned-down bakery. Every one of them is lying about the night it happened.",
-      art: "linear-gradient(120deg,#3a120c 0%,#7a2e1c 55%,#c05a2a 100%)" },
-    { id: "m3", title: "Fjord", type: "Movie", genres: ["Documentary"],
-      meta: "2026 · 1h 32m", rating: "G", caps: ["4K", "Dolby Atmos", "CC"],
-      desc: "A year above the Arctic Circle, where the water freezes and the village refuses to.",
-      art: "linear-gradient(160deg,#0d2b2b 0%,#1e5c55 50%,#7fb9a6 100%)" },
+    { id: "dune-2", title: "Dune: Part Two", type: "Movie", year: 2024, genres: ["Science Fiction", "Adventure"],
+      runtime: "2h 47m", rating: "PG-13",
+      desc: "Paul Atreides unites with Chani and the Fremen while seeking justice for his family and confronting a choice that could reshape the universe.",
+      tmdbId: 693134, imdbRating: 8.4, art: "art/tmdb/posters/dune-part-two.jpg", poster: "art/tmdb/posters/dune-part-two.jpg", backdrop: "art/tmdb/backdrops/dune-part-two.jpg" },
+    { id: "interstellar", title: "Interstellar", type: "Movie", year: 2014, genres: ["Adventure", "Drama", "Science Fiction"],
+      runtime: "2h 49m", rating: "PG-13",
+      desc: "As Earth becomes harder to inhabit, a pilot joins a mission through a wormhole in search of a future for humanity.",
+      tmdbId: 157336, imdbRating: 8.7, art: "art/tmdb/posters/interstellar.jpg", poster: "art/tmdb/posters/interstellar.jpg", backdrop: "art/tmdb/backdrops/interstellar.jpg" },
+    { id: "spider-verse", title: "Spider-Man: Across the Spider-Verse", type: "Movie", year: 2023, genres: ["Animation", "Action", "Adventure"],
+      runtime: "2h 20m", rating: "PG",
+      desc: "Miles Morales crosses paths with a team of Spider-People and faces a choice that tests what it means to be a hero.",
+      tmdbId: 569094, imdbRating: 8.5, art: "art/tmdb/posters/spider-verse.jpg", poster: "art/tmdb/posters/spider-verse.jpg", backdrop: "art/tmdb/backdrops/spider-verse.jpg" },
   ],
-  shelves: [
-    { title: "Continue Watching", kind: "landscape", items: [
-      { id: "s1", title: "Ember Lane", sub: "S2 E4 · 22 min left", progress: 0.62, art: "linear-gradient(120deg,#42140d,#8a3b1e)" },
-      { id: "s2", title: "The Cartographer", sub: "41 min left", progress: 0.35, art: "linear-gradient(120deg,#243447,#5a7d9a)" },
-      { id: "s3", title: "Night Market", sub: "S1 E9 · 9 min left", progress: 0.86, art: "linear-gradient(120deg,#3d1d4e,#8250a8)" },
-      { id: "s4", title: "Fjord", sub: "18 min left", progress: 0.75, art: "linear-gradient(120deg,#123b38,#4d8a7d)" },
-      { id: "s5", title: "The Long Rally", sub: "S3 E2 · 31 min left", progress: 0.48, art: "linear-gradient(120deg,#40300e,#9a7a2a)" },
-    ]},
-    { title: "Top Movies in Your Library", kind: "poster", items: [
-      { id: "t1", title: "Signal Fires",    sub: "Drama · 2h 5m",  art: "linear-gradient(160deg,#2b0f14,#7a3040)" },
-      { id: "t2", title: "Salt & Static",   sub: "Thriller · 1h 58m", art: "linear-gradient(160deg,#101c2b,#3c5a7a)" },
-      { id: "t3", title: "Greenhouse",      sub: "Comedy · 1h 44m", art: "linear-gradient(160deg,#122b12,#3f7a3f)" },
-      { id: "t4", title: "The Understudy",  sub: "Drama · 2h 12m", art: "linear-gradient(160deg,#2b1230,#6a3a80)" },
-      { id: "t5", title: "Northbound",      sub: "Adventure · 1h 51m", art: "linear-gradient(160deg,#0e2436,#2f6a8f)" },
-      { id: "t6", title: "Paper Boats",     sub: "Family · 1h 37m", art: "linear-gradient(160deg,#332a10,#8a7433)" },
-    ]},
-    { title: "Recently Added", kind: "poster", items: [
-      { id: "r1", title: "Ember Lane",      sub: "Series · 3 Seasons", art: "linear-gradient(160deg,#3a120c,#b06030)" },
-      { id: "r2", title: "The Silent Orbit",sub: "Sci-Fi · 2h 18m", art: "linear-gradient(160deg,#0b1e3a,#4a7ab5)" },
-      { id: "r3", title: "Cellar Door",     sub: "Horror · 1h 39m", art: "linear-gradient(160deg,#1a0f1a,#5c2a5c)" },
-      { id: "r4", title: "Fjord",           sub: "Documentary · 1h 32m", art: "linear-gradient(160deg,#0d2b2b,#5a9a86)" },
-    ]},
+  series: [
+    {
+      id: "arcane", title: "Arcane", type: "Animated series", year: 2021,
+      genres: ["Animation", "Action", "Fantasy"], runtime: "2 seasons | 18 episodes",
+      rating: "TV-14", seasonCount: 2, episodeCount: 18, tmdbId: 94605,
+      poster: "art/tv/posters/arcane-poster.jpg", backdrop: "art/tv/backdrops/arcane-backdrop.jpg",
+      desc: "Two sisters find themselves on opposing sides of a conflict between the cities of Piltover and Zaun.",
+      seasons: [
+        { number: 1, year: 2021, episodeCount: 9, episodes: [
+          { number: 1, title: "Welcome to the Playground", runtime: "44m", art: "art/tv/episodes/arcane-s1e1.jpg", desc: "Vi and Powder run into trouble in Zaun after a heist in Piltover." },
+          { number: 2, title: "Some Mysteries Are Better Left Unsolved", runtime: "41m", art: "art/tv/episodes/arcane-s1e2.jpg", desc: "Inventor Jayce pushes his experiments forward while Silco tests a dangerous new substance." },
+          { number: 3, title: "The Base Violence Necessary for Change", runtime: "45m", art: "art/tv/episodes/arcane-s1e3.jpg", desc: "A clash between old rivals changes Zaun, while Jayce and Viktor risk their research." },
+        ]},
+        { number: 2, year: 2024, episodeCount: 9, episodes: [
+          { number: 1, title: "Heavy Is the Crown", runtime: "41m", art: "art/tv/episodes/arcane-s2e1.jpg", desc: "Vi and Caitlyn face the aftermath of a tragedy as tensions rise between the cities." },
+          { number: 2, title: "Watch It All Burn", runtime: "40m", art: "art/tv/episodes/arcane-s2e2.jpg", desc: "Piltover prepares for war as Jinx keeps a low profile in the Undercity." },
+          { number: 3, title: "Finally Got the Name Right", runtime: "41m", art: "art/tv/episodes/arcane-s2e3.jpg", desc: "Caitlyn intensifies her search for Jinx while Ambessa pursues a meeting." },
+        ]},
+      ],
+    },
+    {
+      id: "spy-family", title: "SPY x FAMILY", type: "Anime series", isAnime: true, year: 2022,
+      genres: ["Anime", "Animation", "Action", "Comedy"], runtime: "3 seasons | 50 episodes",
+      rating: "TV-14", seasonCount: 3, episodeCount: 50, tmdbId: 120089,
+      poster: "art/tv/posters/spy-family-poster.jpg", backdrop: "art/tv/backdrops/spy-family-backdrop.jpg",
+      desc: "A spy, an assassin, and a telepath form a pretend family while keeping their real identities secret.",
+      seasons: [
+        { number: 1, year: 2022, episodeCount: 25, episodes: [
+          { number: 1, title: "OPERATION STRIX", runtime: "25m", art: "art/tv/episodes/spy-s1e1.jpg", desc: "Twilight begins Operation Strix, adopts Anya, and discovers that family life changes the mission." },
+          { number: 2, title: "SECURE A WIFE", runtime: "25m", art: "art/tv/episodes/spy-s1e2.jpg", desc: "Loid meets Yor, who has a secret identity of her own, and asks her to join the family plan." },
+          { number: 3, title: "PREPARE FOR THE INTERVIEW", runtime: "25m", art: "art/tv/episodes/spy-s1e3.jpg", desc: "The new family prepares for Anya's school interview and tries to look convincing together." },
+        ]},
+      ],
+    },
   ],
+  films: [
+    { id: "inception", title: "Inception", year: 2010, genres: ["Action", "Science Fiction"], runtime: "2h 28m", rating: "PG-13", imdbRating: 8.8, tmdbId: 27205, poster: "art/tmdb/posters/inception.jpg", backdrop: "art/tmdb/backdrops/inception.jpg", desc: "A specialist in entering dreams is offered a chance to return home by planting an idea in a target's mind.", progress: .64, progressLabel: "1h 35m left" },
+    { id: "interstellar", title: "Interstellar", year: 2014, genres: ["Adventure", "Drama", "Science Fiction"], runtime: "2h 49m", rating: "PG-13", imdbRating: 8.7, tmdbId: 157336, poster: "art/tmdb/posters/interstellar.jpg", backdrop: "art/tmdb/backdrops/interstellar.jpg", desc: "As Earth becomes harder to inhabit, a pilot joins a mission through a wormhole in search of a future for humanity.", progress: .38, progressLabel: "1h 45m left" },
+    { id: "parasite", title: "Parasite", year: 2019, genres: ["Drama", "Thriller"], runtime: "2h 13m", rating: "R", imdbRating: 8.5, tmdbId: 496243, poster: "art/tmdb/posters/parasite.jpg", backdrop: "art/tmdb/backdrops/parasite.jpg", desc: "A cash-strapped family finds its way into a wealthy household, with consequences that shift from comic to unsettling.", progress: .81, progressLabel: "25m left" },
+    { id: "dark-knight", title: "The Dark Knight", year: 2008, genres: ["Action", "Crime", "Drama"], runtime: "2h 32m", rating: "PG-13", imdbRating: 9.1, tmdbId: 155, poster: "art/tmdb/posters/dark-knight.jpg", backdrop: "art/tmdb/backdrops/dark-knight.jpg", artTitle: true, desc: "Batman faces a new criminal force pushing Gotham into chaos and testing the city’s limits.", progress: .22, progressLabel: "1h 59m left" },
+    { id: "spider-verse", title: "Spider-Man: Across the Spider-Verse", year: 2023, genres: ["Animation", "Action", "Adventure"], runtime: "2h 20m", rating: "PG", imdbRating: 8.5, tmdbId: 569094, poster: "art/tmdb/posters/spider-verse.jpg", backdrop: "art/tmdb/backdrops/spider-verse.jpg", desc: "Miles Morales crosses paths with a team of Spider-People and faces a choice that tests what it means to be a hero.", progress: .47, progressLabel: "1h 14m left" },
+    { id: "grand-budapest", title: "The Grand Budapest Hotel", year: 2014, genres: ["Comedy", "Drama"], runtime: "1h 40m", rating: "R", imdbRating: 8.1, tmdbId: 120467, poster: "art/tmdb/posters/grand-budapest.jpg", backdrop: "art/tmdb/backdrops/grand-budapest.jpg", artTitle: true, desc: "A hotel concierge and his young protégé become caught up in a stolen painting and a family inheritance dispute.", progress: .12, progressLabel: "1h 28m left" },
+    { id: "the-batman", title: "The Batman", year: 2022, genres: ["Crime", "Mystery", "Thriller"], runtime: "2h 57m", rating: "PG-13", imdbRating: 7.8, tmdbId: 414906, poster: "art/tmdb/posters/the-batman.jpg", backdrop: "art/tmdb/backdrops/the-batman.jpg", artTitle: true, desc: "A young Batman follows a trail of riddles through Gotham and uncovers corruption tied to the city’s past.", progress: .0, progressLabel: "Not started" },
+  ],
+  credits: "This product uses the TMDB API but is not endorsed or certified by TMDB.",
 };

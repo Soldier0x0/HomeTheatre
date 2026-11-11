@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 140" role="img" aria-labelledby="title description">
+  <title id="title">Home Theater</title>
+  <desc id="description">An old curved-screen television with physical controls and a tripod stand. HOME and THEATER share one centered type style. Transparent background.</desc>
+  <g transform="translate(14 12) scale(1.25)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 18Q7 10 18 8h65q16 2 18 12v43q-2 9-14 11H19Q7 72 5 63Z" fill="none" stroke="var(--brand-secondary, #a98754)" stroke-width="3.8"/>
+    <path d="M12 24q2-6 10-6h43q8 1 9 8v31q-1 7-8 7H21q-8-1-9-8Z" fill="none" stroke="var(--brand-primary, #eee7d9)" stroke-width="2.7"/>
+    <circle cx="87" cy="26" r="5" fill="none" stroke="var(--brand-primary, #eee7d9)" stroke-width="2.8"/>
+    <circle cx="86" cy="44" r="3.7" fill="var(--brand-primary, #eee7d9)"/>
+    <circle cx="96" cy="44" r="2.3" fill="var(--brand-primary, #eee7d9)"/>
+    <path d="M82 55v7m6-7v7m6-7v7M52 74v8M52 82 27 97M52 82l25 15M52 82v15" fill="none" stroke="var(--brand-primary, #eee7d9)" stroke-width="2.8"/>
+  </g>
+  <g fill="var(--brand-primary, #eee7d9)" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="700" letter-spacing="2.8" text-anchor="middle">
+    <text x="350" y="55">HOME</text>
+    <text x="350" y="88">THEATER</text>
+  </g>
+</svg>
