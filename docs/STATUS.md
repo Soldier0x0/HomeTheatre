@@ -11,8 +11,47 @@
   dedicated Settings page with three selectable themes, media-source entry demo, metadata/artwork
   choices, and performance preferences.
   Reduced-motion and high-contrast fallbacks.
-  **All data is MOCK** (locally bundled original key art/illustrations; no provider or real library
-  connection, no playback).
+  Data comes from the server when it is running (see vertical slice below); without a server the
+  prototype falls back to the bundled sample catalog (locally bundled original key art/illustrations).
+
+## Vertical slice (2026-11-12) — real server + catalog + playback
+
+Implemented and verified by automated tests (`server/tests/test_slice.py`, 17 passing):
+
+- **Server**: Python 3.12 + FastAPI + Uvicorn (`server/app/`), SQLite (WAL, foreign keys) with a
+  versioned schema (media_sources, titles, seasons, episodes, media_files, artwork, profiles,
+  playback_state, admin_auth, audit_log). Same server serves the prototype at `/` and the API at
+  `/api` (OpenAPI at `/api/docs`). Run: `.venv/bin/python -m server.app.main` (127.0.0.1:8787).
+- **Scanner**: walks configured media roots only; parses SxxEyy / 1x01 / `Season N` episode layouts
+  and `Movie (Year)` names; reads NFO sidecars (title/year/plot/genres/cert; anime classification via
+  anidb/anilist/mal/kitsu uniqueid or `<anime>`); picks up poster/fanart sidecars and episode stills.
+  Incremental (size+mtime). Per-file errors are isolated and counted, never fatal.
+- **Catalog API**: `/api/catalog/shaped` returns exactly the client's mock-data contract
+  (hero/films/series; `isAnime` keeps anime out of Movies/Series shelves client-side). Titles without
+  sidecar art get a deterministic gradient placeholder. `PATCH /api/catalog/{id}` stores manual
+  corrections in `user_overrides` (rescan never overwrites them).
+- **Client bridge**: `design/prototype/api.js` swaps `window.MOCK` for server data when
+  `/api/health` responds and gates the app's init on it; syncs the active browser-local profile to
+  the server for progress ownership. No server → sample data, clearly labeled.
+- **Playback**: `player.html` (HTML5 video, ADR-0003) + `GET /api/stream/{file_id}` with full
+  HTTP range support (206/416, byte-accurate verified). Resume per profile via
+  `/api/playback/{profile}/{title}` (auto-watched at >95% duration); player saves every ~5 s and on
+  page hide. Play/episode tiles in the UI launch the player when the server is present.
+- **Admin boundary (server-enforced)**: `POST /api/files/{file_id}/delete` requires a scrypt-hashed
+  administrator password (verified server-side, rate limited 5/min per address) *and* an exact-path
+  confirmation equal to the indexed relative path. The submitted password never enters the database
+  or audit log (test asserts the raw DB bytes contain no plaintext secret). Every attempt — denied,
+  rate-limited, mismatched — is audited. `POST /api/admin/setup` bootstraps the verifier once.
+- **Separate flows**: remove-from-library (`POST /api/catalog/{id}/remove`) and remove-source
+  (`DELETE /api/sources/{id}`) drop catalog/index records only — tests assert the files survive on
+  disk. File deletion is the only endpoint that touches media files, and it is admin-gated.
+- **Profiles**: server CRUD (`/api/profiles`), passwordless, idempotent by name; playback rows are
+  per (profile, title). Server-side profile management UI is not wired yet (browser-local profiles
+  remain the UI of record this slice).
+- **Known gaps (honest)**: movie runtimes come from NFO only (no media probing — ffprobe not
+  integrated); watchlist/"watched" marks are still browser-local while playback progress is
+  server-side; scans run synchronously on request; the admin password is set via API call only (no
+  UI); no transcode/subtitle support.
 
 ## Latest visual refinement
 
@@ -81,8 +120,11 @@
 - The profile control shows initials for the active user-created profile, or a plus sign before one
   exists. Profile display names and avatar colors are customizable; the prototype preloads no
   household names.
-- This remains a frontend-only prototype; real library data, playback capability badges and real
-  progress are not implemented.
+- This was a frontend-only prototype; it now renders real server catalog data when the Home Theater
+  server is running (see the vertical slice section above). With no server, the bundled sample data
+  is used and no filesystem access happens.
+- The TMDb sample artwork/IMDb snapshot data applies to the no-server sample catalog only; real
+  server libraries index local sidecar metadata and art.
 
 ## Design research
 
@@ -92,19 +134,22 @@
 
 ## NOT implemented (do not claim otherwise)
 
-- Server, database, scanner, storage adapters, metadata providers, artwork pipeline.
-- Playback (mpv/libmpv or browser video), progress sync, transcoding.
-- Admin authorization (server-side deletion enforcement)  |  the CONFIRMED security boundary.
-- Real library integration; the prototype never touches the filesystem.
-- Production media-source mounting, multi-device indexing, provider metadata/artwork lookup, and
-  server artwork caching. Settings entries are local demonstration data only.
+- Metadata providers, server artwork caching from providers, provider-based metadata enrichment
+  (sidecar NFO/local art only). Settings' metadata choices are still local demonstration data.
+- Transcoding, subtitle selection/download, mpv/libmpv playback engine, codec probing (ffprobe).
+- Media-source mounting/monitoring, network share discovery, multi-device indexing.
+- Server-side profile management UI (API exists; profiles remain browser-local in the UI).
+- Production hardening: authentication beyond the admin boundary, HTTPS, multi-user concurrency
+  testing at scale, background scan scheduler.
 - Android/TV/desktop native clients.
 
 ## Next
 
-1. Choose the production server, storage access model, metadata/artwork provider policy, and artwork
-   cache budget. Keep the provider optional and do not bake a full external catalog into clients.
-2. Confirm backend, playback-engine, subtitle-provider, and supported-format decisions before
-   implementing real playback or subtitle downloads.
-3. Build a thin end-to-end slice from one indexed local media file through cached metadata/artwork to
-   the client and playback, then add the server-enforced admin deletion boundary and audit trail.
+1. Wire the Settings profiles/media-sources sections to the server APIs (create/rename/remove
+   profiles server-side; add/scan/remove sources from the UI with health and last-scan display).
+2. Admin password bootstrap UX plus the remove-from-library / delete-file flows in the UI
+   (exact-target confirmation naming the file and path), backed by the existing server boundary.
+3. ffprobe-based runtime/codec detection; per-file capability badges; transcode decision (mpv
+   engine vs. server transcode) per the PROPOSED list in `docs/DECISIONS.md`.
+4. Background scan scheduler with progress in the UI; metadata provider enablement policy.
+5. Continue Watching across devices once profiles move fully server-side.

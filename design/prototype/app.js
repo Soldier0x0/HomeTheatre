@@ -750,10 +750,31 @@
     if (state.view === "search" && restoreFocus) $("#catalogSearch")?.focus();
   }
 
+  function firstPlayableUrl(item) {
+    if (!item) return null;
+    if (item.seasons?.length) {
+      for (const season of item.seasons) {
+        for (const episode of season.episodes || []) {
+          if (episode.stream) return window.HOME_PLAYER_URL(item, season.number, episode.number);
+        }
+      }
+      return null;
+    }
+    return item.stream ? window.HOME_PLAYER_URL(item) : null;
+  }
+
   function handleDetailAction(action) {
     const item = state.detailItem;
     if (!item) return;
     if (action === "play") {
+      if (window.HAS_SERVER) {
+        const url = firstPlayableUrl(item);
+        if (url) { window.location.href = url; return; }
+        $("#detailFeedback").textContent = item.seasons
+          ? "No playable episode file is indexed for this series yet."
+          : "No playable file is indexed for this title yet.";
+        return;
+      }
       $("#detailFeedback").textContent = item.seasons
         ? "Series playback is not connected in this prototype."
         : "Playback is not connected in this prototype.";
@@ -812,7 +833,13 @@
     if (episodeChoice && state.detailItem?.seasons) {
       const season = state.detailItem.seasons.find(entry => entry.number === state.detailSeason);
       const episode = season?.episodes.find(entry => entry.number === Number(episodeChoice.dataset.episodeNumber));
-      if (episode) $("#detailFeedback").textContent = `${state.detailItem.title} | S${state.detailSeason} E${episode.number} | playback is not connected in this prototype.`;
+      if (episode) {
+        if (window.HAS_SERVER && episode.stream) {
+          window.location.href = window.HOME_PLAYER_URL(state.detailItem, state.detailSeason, episode.number);
+          return;
+        }
+        $("#detailFeedback").textContent = `${state.detailItem.title} | S${state.detailSeason} E${episode.number} | playback is not connected in this prototype.`;
+      }
       return;
     }
     const libraryFilter = e.target.closest("[data-library-filter]");
@@ -992,5 +1019,8 @@
     window.addEventListener("resize", () => { applyLayoutSettings(); if ($$(".focused").length) applyFocus(state.groupIndex, state.itemIndex); });
   }
 
-  document.addEventListener("DOMContentLoaded", init);
+  document.addEventListener("DOMContentLoaded", () => {
+    // When the server bridge (api.js) has data ready, render from it; otherwise bundled sample data.
+    (window.HOME_DATA_READY || Promise.resolve()).then(() => init());
+  });
 })();

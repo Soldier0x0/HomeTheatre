@@ -212,11 +212,16 @@ information rather than making viewers decode raw stream identifiers.
 
 1. **Interaction foundation:** complete desktop shelf arrows and stable card hover hit areas in the
    web prototype. Confirm touch swiping and keyboard/D-pad focus rules across Home, Library,
-   Discover, and Search.
+   Discover, and Search. — *done (prototype, verified visually; device QA remains phase 6).*
 2. **Media inventory:** choose the server and playback stack, scan real files, and expose media
    duration, stream indices, audio languages, subtitle languages, and track flags through the API.
+   — *first slice done 2026-11-12: FastAPI/SQLite chosen (ADR-0001), scanner + catalog API +
+   HTTP-range streaming + per-profile resume implemented and covered by automated tests. Duration
+   and track/stream indices still need probing (ffprobe) and are reported as unknown, not invented.*
 3. **Playback baseline:** implement play/pause, seeking, progress, resume, and truthful capability
-   reporting for the first supported client.
+   reporting for the first supported client. — *baseline done for HTML5 video: play/pause/seek,
+   resume, progress sync, explicit unsupported-container error. Capability reporting beyond
+   browser support arrives with probing.*
 4. **Track controls:** implement audio selection, embedded subtitle selection, subtitle preferences,
    and per-profile persistence.
 5. **Subtitle lookup:** select a provider, implement hash and metadata matching, download validation,
@@ -250,9 +255,13 @@ information rather than making viewers decode raw stream identifiers.
 
 ## Open decisions
 
-- Backend and playback engine for each target platform.
+- Backend and playback engine for each target platform. — *backend chosen for the slice (FastAPI +
+  SQLite, ADR-0001); playback engine still open: browser HTML5 video is the current baseline,
+  mpv/libmpv and transcode policy remain proposed (see docs/DECISIONS.md).*
 - Subtitle provider(s), provider terms, supported languages, and whether hash lookup is opt-in.
-- Supported audio/video/subtitle formats and the policy for direct play versus transcoding.
+- Supported audio/video/subtitle formats and the policy for direct play versus transcoding. —
+  *slice reports truthfully: direct play of browser-supported containers only; everything else is
+  an explicit error, not silent failure.*
 - Which TV platforms are in the first release and their remote/IME APIs.
 - Whether downloaded subtitles are shared across household profiles or stored per profile.
 - Whether language preferences are global per profile, per title, or both.

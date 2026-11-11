@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#08090c" />
+  <title>Home Theater | Now Playing</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; background: var(--bg, #08090c); color: var(--text, #f2f2f4); }
+    .player-nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 22px; }
+    .player-heading { text-align: right; min-width: 0; }
+    .player-heading h1 { margin: 0; font-size: 1.05rem; font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .player-heading p { margin: 2px 0 0; font-size: 0.78rem; opacity: 0.65; }
+    .player-stage { flex: 1; display: grid; place-items: center; padding: 0 22px 22px; position: relative; }
+    .player-stage video { width: 100%; max-height: calc(100vh - 110px); background: #000; border-radius: 10px; outline: none; }
+    .player-stage.video-error video { display: none; }
+    .player-overlay { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; }
+    .player-overlay.hidden { display: none; }
+    .player-overlay p { margin: 12px auto 0; max-width: 52ch; opacity: 0.75; font-size: 0.9rem; line-height: 1.5; }
+    .player-overlay .pill { cursor: pointer; }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <!-- Server-backed player: HTTP range streaming from the Home Theater API (ADR-0003). -->
+  <nav class="player-nav">
+    <a class="brand" href="index.html" aria-label="Back to the library">
+      <svg class="brand-mark" viewBox="0 0 104 100" aria-hidden="true"><path class="brand-mark-case" d="M5 18Q7 10 18 8h65q16 2 18 12v43q-2 9-14 11H19Q7 72 5 63Z"/><path class="brand-mark-glass" d="M12 24q2-6 10-6h43q8 1 9 8v31q-1 7-8 7H21q-8-1-9-8Z"/><circle class="brand-mark-dial" cx="87" cy="26" r="5"/><circle class="brand-mark-button" cx="86" cy="44" r="3.7"/><circle class="brand-mark-button" cx="96" cy="44" r="2.3"/><path class="brand-mark-speaker" d="M82 55v7m6-7v7m6-7v7M52 74v8M52 82 27 97M52 82l25 15M52 82v15"/></svg>
+      <span class="brand-wordmark"><span>HOME</span><span>THEATER</span></span>
+    </a>
+    <div class="player-heading">
+      <h1 id="playerTitle">Loading…</h1>
+      <p id="playerSub"></p>
+    </div>
+  </nav>
+  <main class="player-stage" id="playerStage">
+    <video id="video" controls playsinline preload="metadata"></video>
+    <div class="player-overlay" id="playerOverlay">
+      <div>
+        <button class="pill" id="startBtn" hidden>▶&nbsp;&nbsp;Play</button>
+        <p id="playerMsg">Connecting to the Home Theater server…</p>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    (function () {
+      "use strict";
+      const params = new URLSearchParams(location.search);
+      const titleId = params.get("title");
+      const seasonNo = params.get("s") ? Number(params.get("s")) : null;
+      const episodeNo = params.get("e") ? Number(params.get("e")) : null;
+      const profile = params.get("profile") || null;
+
+      const video = document.getElementById("video");
+      const overlay = document.getElementById("playerOverlay");
+      const startBtn = document.getElementById("startBtn");
+      const msg = document.getElementById("playerMsg");
+      const stage = document.getElementById("playerStage");
+      let lastSavedSec = 0;
+      let saveTimer = null;
+
+      // honor the household theme chosen in Settings
+      try {
+        const prefs = JSON.parse(localStorage.getItem("homeTheaterPreferences") || "{}");
+        if (prefs.theme) document.documentElement.dataset.theme = prefs.theme;
+      } catch { /* storage may be unavailable */ }
+
+      function showOverlay(text, { start = false, error = false } = {}) {
+        overlay.classList.remove("hidden");
+        startBtn.hidden = !start;
+        msg.textContent = text;
+        stage.classList.toggle("video-error", error);
+      }
+      function hideOverlay() { overlay.classList.add("hidden"); stage.classList.remove("video-error"); }
+
+      function fmt(sec) {
+        sec = Math.max(0, Math.round(sec));
+        const m = Math.floor(sec / 60), s = sec % 60;
+        return `${m}:${String(s).padStart(2, "0")}`;
+      }
+
+      async function fetchPlayback() {
+        if (!profile) return null;
+        try {
+          const r = await fetch(`/api/playback/${encodeURIComponent(profile)}`, { cache: "no-store" });
+          if (!r.ok) return null;
+          return (await r.json()).items.find(it => it.title_id === titleId) || null;
+        } catch { return null; }
+      }
+
+      async function savePlayback(final = false) {
+        if (!profile || !video.duration || !isFinite(video.duration) || video.currentTime <= 0) return;
+        if (!final && Math.abs(video.currentTime - lastSavedSec) < 3) return;
+        lastSavedSec = video.currentTime;
+        try {
+          await fetch(`/api/playback/${encodeURIComponent(profile)}/${encodeURIComponent(titleId)}`, {
+            method: "PUT", keepalive: final, headers: { "content-type": "application/json" },
+            body: JSON.stringify({ position_sec: Math.round(video.currentTime), duration_sec: Math.round(video.duration) }),
+          });
+        } catch { /* progress sync is best-effort */ }
+      }
+
+      video.addEventListener("play", hideOverlay);
+      video.addEventListener("pause", () => savePlayback());
+      video.addEventListener("error", () => {
+        showOverlay("This file could not be played. The server streams the file as-is; " +
+          "containers or codecs the browser does not support (for example some MKV tracks) are not transcoded yet.",
+          { error: true });
+      });
+      window.addEventListener("pagehide", () => savePlayback(true));
+      document.addEventListener("visibilitychange", () => { if (document.hidden) savePlayback(true); });
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") location.href = "index.html"; });
+      startBtn.addEventListener("click", () => video.play().catch(() => showOverlay("Playback was blocked by the browser.", { error: true })));
+
+      async function boot() {
+        if (!titleId) {
+          showOverlay("No title was given. Open a title from the library and press Play.", { error: true });
+          return;
+        }
+        let item;
+        try {
+          const r = await fetch(`/api/catalog/${encodeURIComponent(titleId)}`, { cache: "no-store" });
+          if (!r.ok) throw new Error("catalog");
+          item = await r.json();
+        } catch {
+          showOverlay("Could not reach the Home Theater server catalog.", { error: true });
+          return;
+        }
+
+        let label = [item.year, item.genres?.slice(0, 2).join(" · ")].filter(Boolean).join(" | ");
+        let streamUrl = item.stream;
+        let heading = item.title;
+        if (seasonNo != null && episodeNo != null && item.seasons?.length) {
+          const season = item.seasons.find(s => s.number === seasonNo) || item.seasons[0];
+          const episode = season.episodes.find(e => e.number === episodeNo) || season.episodes[0];
+          if (episode) {
+            streamUrl = episode.stream || streamUrl;
+            heading = `${item.title} — ${episode.title}`;
+            label = `S${String(season.number).padStart(2, "0")} E${String(episode.number).padStart(2, "0")} | ${item.title}`;
+          }
+        }
+        document.getElementById("playerTitle").textContent = heading;
+        document.getElementById("playerSub").textContent = label;
+
+        if (!streamUrl) {
+          showOverlay("No playable file is indexed for this title yet. Add the file to a media source and rescan.", { error: true });
+          return;
+        }
+
+        const saved = await fetchPlayback();
+        video.src = streamUrl;
+        if (saved && saved.position_sec > 5 && !saved.watched) {
+          video.addEventListener("loadedmetadata", () => {
+            video.currentTime = Math.min(saved.position_sec, (video.duration || saved.position_sec) - 5);
+          }, { once: true });
+        }
+        video.addEventListener("loadedmetadata", () => {
+          saveTimer = setInterval(() => savePlayback(), 5000);
+        }, { once: true });
+        video.play().then(() => hideOverlay()).catch(() => {
+          showOverlay(saved && saved.position_sec > 5
+            ? `Ready to resume from ${fmt(saved.position_sec)}.`
+            : "Ready to play.", { start: true });
+        });
+      }
+      window.addEventListener("beforeunload", () => { if (saveTimer) clearInterval(saveTimer); });
+      boot();
+    })();
+  </script>
+</body>
+</html>
