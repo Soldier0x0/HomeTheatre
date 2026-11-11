@@ -1,0 +1,209 @@
+/* Home Theater — TV-first prototype styles.
+   Tokens per docs/DESIGN.md. All rules carry reduced-motion / contrast fallbacks. */
+
+:root {
+  --bg-black: #000;
+  --bg-charcoal: #141416;
+  --bg-elevated: #1e1e21;
+  --text-primary: rgba(255,255,255,.96);
+  --text-secondary: rgba(255,255,255,.64);
+  --text-tertiary: rgba(255,255,255,.40);
+  --accent: #F5A524;
+  --focus-scale: 1.09;
+  --focus-duration: 180ms;
+  --focus-easing: cubic-bezier(.2,.7,.3,1);
+  --crossfade: 300ms;
+  --radius-card: 14px;
+  --radius-pill: 999px;
+  --shadow-focus: 0 18px 48px rgba(0,0,0,.55);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Inter", sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg-black);
+  color: var(--text-primary);
+  font-family: var(--font);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+
+/* ---------- Top navigation ---------- */
+.topnav {
+  position: fixed; inset: 0 0 auto 0; z-index: 40;
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 40px;
+  background: linear-gradient(to bottom, rgba(0,0,0,.92), rgba(0,0,0,0));
+}
+.brand { font-weight: 800; font-size: 20px; letter-spacing: .02em; margin-right: 28px; }
+.brand .dot { color: var(--accent); }
+.nav-tab {
+  padding: 10px 18px; border-radius: var(--radius-pill);
+  color: var(--text-secondary); font-size: 16px; font-weight: 600;
+  transition: color var(--focus-duration) var(--focus-easing),
+              background var(--focus-duration) var(--focus-easing);
+}
+.nav-tab[aria-current="page"] { color: var(--text-primary); }
+.nav-tab.focused {
+  color: #000; background: #fff;
+}
+.profile-btn {
+  margin-left: auto; display: flex; align-items: center; gap: 10px;
+  padding: 6px 14px 6px 6px; border-radius: var(--radius-pill);
+  border: 1px solid rgba(255,255,255,.18);
+}
+.avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 700; font-size: 15px; color: #000;
+}
+.profile-btn.focused { background: rgba(255,255,255,.14); border-color: #fff; }
+
+/* ---------- Hero ---------- */
+.hero { position: relative; height: 78vh; min-height: 480px; overflow: hidden; }
+.hero-slide {
+  position: absolute; inset: 0; opacity: 0; pointer-events: none;
+  transition: opacity var(--crossfade) ease;
+  display: grid; align-items: end;
+}
+.hero-slide.active { opacity: 1; pointer-events: auto; }
+.hero-art { position: absolute; inset: 0; }
+.hero-scrim {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(to top, rgba(0,0,0,.88) 0%, rgba(0,0,0,.25) 45%, rgba(0,0,0,.15) 100%),
+    radial-gradient(120% 90% at 20% 100%, rgba(0,0,0,.55), transparent 60%);
+}
+.hero-content {
+  position: relative; padding: 0 64px 56px; max-width: 640px;
+}
+.hero-title { font-size: 56px; font-weight: 800; letter-spacing: -.02em; margin-bottom: 10px; }
+.hero-type { color: var(--text-secondary); font-size: 16px; margin-bottom: 14px; }
+.hero-desc {
+  color: var(--text-secondary); font-size: 17px; line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  margin-bottom: 22px;
+}
+.hero-actions { display: flex; gap: 14px; align-items: center; }
+.hero-dots {
+  position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; padding: 10px 14px; border-radius: var(--radius-pill);
+  background: rgba(20,20,22,.55); border: 1px solid rgba(255,255,255,.12);
+}
+.hero-dots .dot-btn { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.35); transition: all var(--crossfade) ease; }
+.hero-dots .dot-btn.active { background: #fff; transform: scale(1.5); }
+.hero-dots .dot-btn.focused { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* ---------- Pills / buttons ---------- */
+.pill {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 13px 30px; border-radius: var(--radius-pill);
+  background: #fff; color: #000; font-weight: 700; font-size: 16px;
+  transition: transform var(--focus-duration) var(--focus-easing),
+              box-shadow var(--focus-duration) var(--focus-easing);
+}
+.pill.ghost { background: rgba(255,255,255,.16); color: #fff; }
+.pill.focused { transform: scale(1.07); box-shadow: var(--shadow-focus); outline: none; }
+.pill.ghost.focused { background: rgba(255,255,255,.30); }
+
+/* ---------- Chips ---------- */
+.chip {
+  display: inline-block; padding: 3px 9px; border-radius: 6px;
+  background: rgba(255,255,255,.14); color: var(--text-secondary);
+  font-size: 11.5px; font-weight: 700; letter-spacing: .04em;
+}
+.chip.rating { border: 1px solid rgba(255,255,255,.4); background: transparent; }
+.meta-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+
+/* ---------- Shelves ---------- */
+.shelf { margin: 34px 0 8px; }
+.shelf-head { display: flex; align-items: baseline; padding: 0 64px; margin-bottom: 14px; }
+.shelf-title { font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+.shelf-track {
+  display: flex; gap: 18px; padding: 8px 64px 26px;
+  overflow-x: auto; scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+.shelf-track::-webkit-scrollbar { display: none; }
+
+/* ---------- Cards ---------- */
+.card { position: relative; flex: 0 0 auto; border-radius: var(--radius-card); overflow: visible; text-align: left; }
+.card.landscape { width: 340px; }
+.card.poster { width: 220px; }
+.card-art {
+  position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius-card);
+  overflow: hidden; background: var(--bg-charcoal);
+  transition: transform var(--focus-duration) var(--focus-easing),
+              box-shadow var(--focus-duration) var(--focus-easing);
+}
+.card.poster .card-art { aspect-ratio: 2 / 3; display: grid; align-items: end; }
+.card-grad { position: absolute; inset: 0; }
+.card-scrim { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.45), transparent 55%); }
+.card-grad-title {
+  position: relative; padding: 12px; font-size: 18px; font-weight: 800; color: #fff;
+  text-shadow: 0 2px 8px rgba(0,0,0,.6);
+}
+.card-label { padding: 10px 2px 0; }
+.card-title { font-size: 15px; font-weight: 600; }
+.card-sub { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+.card-progress {
+  position: absolute; left: 12px; right: 12px; bottom: 10px; height: 4px;
+  border-radius: 2px; background: rgba(255,255,255,.28); overflow: hidden;
+}
+.card-progress > span { display: block; height: 100%; background: #fff; border-radius: 2px; }
+.rank {
+  position: absolute; top: 8px; left: 10px; z-index: 2;
+  font-size: 34px; font-weight: 900; color: #fff;
+  text-shadow: 0 2px 10px rgba(0,0,0,.7); line-height: 1;
+}
+/* Focus treatment: scale + shadow + elevation; siblings dim (H6) */
+.card.focused .card-art {
+  transform: scale(var(--focus-scale));
+  box-shadow: var(--shadow-focus);
+  outline: 3px solid rgba(255,255,255,.9); outline-offset: 2px;
+}
+.shelf-row.focused .card:not(.focused) { opacity: .78; transition: opacity var(--focus-duration) linear; }
+
+/* ---------- Overlays ---------- */
+.overlay {
+  position: fixed; inset: 0; z-index: 60; display: none;
+  place-items: center; background: rgba(0,0,0,.62);
+}
+.overlay.open { display: grid; }
+.sheet {
+  width: min(680px, 90vw); border-radius: 22px; padding: 34px;
+  background: rgba(30,30,33,.82);
+  border: 1px solid rgba(255,255,255,.14);
+}
+@supports (backdrop-filter: blur(20px) saturate(180%)) {
+  .sheet { backdrop-filter: blur(20px) saturate(180%); background: rgba(30,30,33,.62); }
+}
+.sheet h2 { font-size: 32px; margin-bottom: 6px; }
+.sheet .type-line { color: var(--text-secondary); margin-bottom: 14px; }
+.sheet .desc { color: var(--text-secondary); line-height: 1.55; margin-bottom: 22px; }
+.sheet .actions { display: flex; gap: 14px; }
+
+/* Profile switcher (passwordless — CONFIRMED product rule) */
+.profile-grid { display: flex; gap: 26px; margin-top: 22px; }
+.profile-tile {
+  display: grid; justify-items: center; gap: 10px; padding: 16px;
+  border-radius: 16px; transition: transform var(--focus-duration) var(--focus-easing);
+}
+.profile-tile .avatar { width: 76px; height: 76px; font-size: 30px; }
+.profile-tile .name { color: var(--text-secondary); font-weight: 600; }
+.profile-tile.focused { transform: scale(1.08); background: rgba(255,255,255,.10); outline: 3px solid #fff; outline-offset: 2px; }
+
+/* ---------- Detail overlay note (MOCK) ---------- */
+.note { margin-top: 18px; font-size: 12.5px; color: var(--text-tertiary); }
+
+/* ---------- Fallbacks ---------- */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+  .card.focused .card-art { transform: none; }
+  .pill.focused { transform: none; }
+}
+@media (prefers-contrast: more) {
+  .card.focused .card-art { outline: 4px solid #fff; }
+  .hero-desc, .card-sub { color: #fff; }
+}
