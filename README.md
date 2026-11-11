@@ -29,6 +29,9 @@ Open `design/prototype/index.html` in any browser, or serve it:
 python3 -m http.server 8080 --directory design/prototype
 ```
 
+![Prototype home screen](docs/img/prototype-home.png)
+*Verified rendering via REA browser capture (evidence `ev_1197…c4c3a8` — see AGENT_STATE research).*
+
 Navigate with **arrow keys** (D-pad simulation), **Enter** to select, **Escape/Backspace** for back,
 **P** for the passwordless profile switcher. Mouse hover mirrors focus.
 
