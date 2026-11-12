@@ -10,11 +10,12 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _MIGRATIONS = {
     # column additions applied to databases created at an older user_version
     2: ["ALTER TABLE media_files ADD COLUMN probe_json TEXT"],
+    # v3 adds the watchlist table via CREATE TABLE IF NOT EXISTS in _SCHEMA — no ALTER needed
 }
 
 _SCHEMA = """
@@ -104,6 +105,13 @@ CREATE TABLE IF NOT EXISTS playback_state (
   duration_sec REAL,
   watched INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL,
+  PRIMARY KEY (profile_id, title_id)
+);
+
+CREATE TABLE IF NOT EXISTS watchlist (
+  profile_id TEXT NOT NULL,
+  title_id TEXT NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+  added_at TEXT NOT NULL,
   PRIMARY KEY (profile_id, title_id)
 );
 

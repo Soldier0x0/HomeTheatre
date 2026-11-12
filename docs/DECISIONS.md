@@ -94,6 +94,29 @@ TMDb enrichment exists (`POST /api/catalog/{title_id}/refresh`) but is **disable
 sent to clients; remote artwork URLs are loaded directly by the browser only after opt-in. Titles
 without a provider show filename metadata and deterministic gradient placeholder art.
 
+## ADR-0008 | Data model: SQLite now, graph store deferred — ADOPTED 2026-11-12
+
+**Decision:** All household data (catalog, people/credits, genres, collections, watchlist,
+playback progress, profiles) lives in SQLite with plain relational modeling: join tables for
+many-to-many relationships, recursive CTEs where traversal depth is needed. A graph database is
+**deferred**, not rejected: if relationship queries ever outgrow SQL, the accepted future shape is
+an *embedded* graph store (e.g., Kùzu) running as an optional sidecar fed from SQLite — **never a
+networked dependency** (consistent with the no-broker/no-infra rule for this server).
+
+**Rationale:** media-library relationships are shallow and enumerable (title↔person↔genre↔collection);
+this is exactly what join tables were designed for, and SQLite at household scale is more than
+sufficient (WAL, transactional, zero-ops). A graph engine earns its cost at recommendation scale
+across many households, not one. Reversal cost is low: the shaped catalog API hides the storage,
+so a sidecar graph could be introduced without client changes.
+
+## Watchlist scope — ADOPTED 2026-11-12
+
+Watchlist is **per-profile and server-side** (schema v3 `watchlist` table, keyed
+`(profile_id, title_id)`), consistent with playback progress and watched state. Endpoints:
+`GET/PUT/DELETE /api/watchlist/{profile_id}[/{title_id}]`; `shaped_catalog` returns `inWatchlist`
+per item when a profile is supplied; profile deletion and title removal cascade the rows. The
+browser keeps a localStorage mirror only as a fallback when no server is present.
+
 ## PROPOSED (not decided — do not silently adopt)
 
 - mpv/libmpv playback engine for native clients (server-side on-demand transcode is the current

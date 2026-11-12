@@ -313,9 +313,12 @@ def _shaped_series(db: Database, t, playback: dict | None) -> dict:
 
 def shaped_catalog(db: Database, profile_id: str | None) -> dict:
     playback = {}
+    watchlist: set[str] = set()
     if profile_id:
         for row in db.query("SELECT * FROM playback_state WHERE profile_id=?", (profile_id,)):
             playback[row["title_id"]] = dict(row)
+        watchlist = {r["title_id"] for r in
+                     db.query("SELECT title_id FROM watchlist WHERE profile_id=?", (profile_id,))}
     hero, films, series = [], [], []
     rows = db.query("SELECT * FROM titles ORDER BY name COLLATE NOCASE")
     for t in rows:
@@ -325,6 +328,7 @@ def shaped_catalog(db: Database, profile_id: str | None) -> dict:
         else:
             item = _shaped_series(db, t, playback.get(t["id"]))
             series.append(item)
+        item["inWatchlist"] = t["id"] in watchlist
     # Hero: real artwork first, then gradient placeholders, so a fresh library still has a hero.
     def has_real_backdrop(item):
         return not item["backdrop"].startswith("data:")
@@ -569,6 +573,7 @@ def delete_profile(profile_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Profile not found.")
     db.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
     db.execute("DELETE FROM playback_state WHERE profile_id=?", (profile_id,))
+    db.execute("DELETE FROM watchlist WHERE profile_id=?", (profile_id,))
     return {"ok": True}
 
 
@@ -602,6 +607,39 @@ def put_playback(profile_id: str, title_id: str, body: PlaybackUpdate, request: 
                          watched=excluded.watched, updated_at=excluded.updated_at""",
         (profile_id, title_id, body.position_sec, body.duration_sec, int(bool(watched)), utcnow()))
     return {"ok": True, "watched": bool(watched)}
+
+
+# ---------------------------------------------------------------------------
+# Watchlist (per profile, server-side — consistent with playback progress)
+# ---------------------------------------------------------------------------
+
+@router.get("/watchlist/{profile_id}")
+def get_watchlist(profile_id: str, request: Request):
+    db = request.app.state.db
+    rows = db.query("""SELECT w.title_id, w.added_at, ti.name AS title_name, ti.kind
+                       FROM watchlist w JOIN titles ti ON ti.id = w.title_id
+                       WHERE w.profile_id=? ORDER BY w.added_at DESC""", (profile_id,))
+    return {"items": [dict(r) for r in rows]}
+
+
+@router.put("/watchlist/{profile_id}/{title_id}")
+def add_to_watchlist(profile_id: str, title_id: str, request: Request):
+    db = request.app.state.db
+    _title_or_404(db, title_id)
+    db.execute(
+        """INSERT INTO watchlist (profile_id, title_id, added_at) VALUES (?,?,?)
+           ON CONFLICT (profile_id, title_id) DO NOTHING""",
+        (profile_id, title_id, utcnow()))
+    db.audit("watchlist_add", target_type="title", target_id=title_id, actor_profile=profile_id)
+    return {"ok": True, "in_watchlist": True}
+
+
+@router.delete("/watchlist/{profile_id}/{title_id}")
+def remove_from_watchlist(profile_id: str, title_id: str, request: Request):
+    db = request.app.state.db
+    db.execute("DELETE FROM watchlist WHERE profile_id=? AND title_id=?", (profile_id, title_id))
+    db.audit("watchlist_remove", target_type="title", target_id=title_id, actor_profile=profile_id)
+    return {"ok": True, "in_watchlist": False}
 
 
 # ---------------------------------------------------------------------------

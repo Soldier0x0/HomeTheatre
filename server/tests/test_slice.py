@@ -405,6 +405,63 @@ def test_provider_disabled_without_key(client):
 
 
 # ---------------------------------------------------------------------------
+# Watchlist (server-side, per profile)
+# ---------------------------------------------------------------------------
+
+def test_watchlist_per_profile(client):
+    scan(client)
+    shaped = client.get("/api/catalog/shaped").json()
+    tid = shaped["films"][0]["id"]
+    sid = shaped["series"][0]["id"] if shaped["series"] else None
+
+    assert client.get("/api/watchlist/p1").json()["items"] == []
+
+    # add + idempotent re-add
+    assert client.put(f"/api/watchlist/p1/{tid}").json()["in_watchlist"] is True
+    client.put(f"/api/watchlist/p1/{tid}")
+    items = client.get("/api/watchlist/p1").json()["items"]
+    assert len(items) == 1 and items[0]["title_id"] == tid
+
+    # shaped reflects membership for the right profile only
+    shaped = client.get("/api/catalog/shaped", params={"profile": "p1"}).json()
+    assert next(f for f in shaped["films"] if f["id"] == tid)["inWatchlist"] is True
+    other = client.get("/api/catalog/shaped", params={"profile": "p2"}).json()
+    assert not next(f for f in other["films"] if f["id"] == tid)["inWatchlist"]
+    anon = client.get("/api/catalog/shaped").json()
+    assert not next(f for f in anon["films"] if f["id"] == tid)["inWatchlist"]
+
+    # series can be watchlisted too
+    if sid:
+        client.put(f"/api/watchlist/p1/{sid}")
+        shaped = client.get("/api/catalog/shaped", params={"profile": "p1"}).json()
+        assert next(s for s in shaped["series"] if s["id"] == sid)["inWatchlist"] is True
+
+    # remove the movie; the watchlisted series (if any) stays
+    assert client.delete(f"/api/watchlist/p1/{tid}").json()["in_watchlist"] is False
+    remaining = client.get("/api/watchlist/p1").json()["items"]
+    assert tid not in {it["title_id"] for it in remaining}
+
+
+def test_watchlist_cleans_up_on_profile_and_title_removal(client):
+    scan(client)
+    shaped = client.get("/api/catalog/shaped").json()
+    tid = shaped["films"][0]["id"]
+
+    r = client.post("/api/profiles", json={"name": "Temp Profile"})
+    pid = r.json()["id"]
+    client.put(f"/api/watchlist/{pid}/{tid}")
+    assert client.get(f"/api/watchlist/{pid}").json()["items"]
+
+    client.delete(f"/api/profiles/{pid}")
+    assert client.get(f"/api/watchlist/{pid}").json()["items"] == []
+
+    # removing the title from the library cascades its watchlist rows
+    client.put(f"/api/watchlist/p1/{tid}")
+    client.post(f"/api/catalog/{tid}/remove")
+    assert client.get("/api/watchlist/p1").json()["items"] == []
+
+
+# ---------------------------------------------------------------------------
 # Admin boundary
 # ---------------------------------------------------------------------------
 

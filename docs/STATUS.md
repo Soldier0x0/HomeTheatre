@@ -48,9 +48,9 @@ Implemented and verified by automated tests (`server/tests/test_slice.py`, 17 pa
 - **Profiles**: server CRUD (`/api/profiles`), passwordless, idempotent by name; playback rows are
   per (profile, title). Server-side profile management UI is not wired yet (browser-local profiles
   remain the UI of record this slice).
-- **Known gaps (honest)**: watchlist marks are still browser-local while playback progress and
-  watched state are server-side; scans run as in-process threads (no durable job table yet); no
-  external metadata provider unless `HOME_THEATER_TMDB_KEY` is set.
+- **Known gaps (honest)**: watchlist was browser-local at this point (moved server-side later the
+  same day, see "Watchlist pass" below); scans run as in-process threads (no durable job table
+  yet); no external metadata provider unless `HOME_THEATER_TMDB_KEY` is set.
 
 ## Second implementation pass (2026-11-12, same day) — capability + UI wiring
 
@@ -81,6 +81,20 @@ All verified by tests (24 passing) and a headless-browser end-to-end suite (19 c
   refresh endpoint enriches title/year/synopsis/artwork with provenance recorded.
 - **Duplicate handling**: same-name movies across sources merge into one title (first file plays);
   `fileCount` on movie items exposes multi-file titles for future UI.
+
+## Watchlist pass (2026-11-12, later) — server-side per-profile watchlist
+
+- Schema v3 adds a `watchlist` table keyed `(profile_id, title_id)` with FK cascades.
+- Endpoints: `GET /api/watchlist/{profile_id}`, `PUT/DELETE /api/watchlist/{profile_id}/{title_id}`
+  (idempotent add, audited). Profile deletion and title removal clean up the rows.
+- `shaped_catalog` returns `inWatchlist` per item when a profile id is supplied; the client toggles
+  optimistically and re-syncs from the server flags (`refreshCatalog` rebuilds
+  `state.watchlistIds` from `inWatchlist` when flags are present; browser-local fallback only when
+  no server or no active profile).
+- Verified by 2 new pytest tests (26 total) and a 7-check headless-browser flow (toggle → server
+  row → `aria-pressed` persists across reload → toggle off → row removed → no JS errors).
+- Data-model decision recorded (ADR-0008): SQLite + join tables now; embedded graph store optional
+  later; never a networked dependency.
 
 ## Latest visual refinement
 
@@ -181,10 +195,9 @@ All verified by tests (24 passing) and a headless-browser end-to-end suite (19 c
 
 1. Audio/subtitle track selection in the player (transcode currently maps the first audio track
    only); per-profile language preferences once tracks are selectable.
-2. Watchlist as a server-side per-profile record (watched/progress already are; watchlist remains
-   browser-local).
-3. Network share mounting (SMB/NFS) behind the existing source model, replacing the demo form.
-4. Durable scan jobs (cancel/pause, progress percentage) for large libraries.
-5. Metadata provider rollout policy: key distribution, cache budget, provider-first vs local-first
+2. Network share mounting (SMB/NFS) behind the existing source model, replacing the demo form
+   (needs a host with mount privileges or pre-mounted shares).
+3. Durable scan jobs (cancel/pause, progress percentage) for large libraries.
+4. Metadata provider rollout policy: key distribution, cache budget, provider-first vs local-first
    per household preference (the Settings artwork-priority control is still local-only).
-6. Native clients per ROADMAP Phase F; ops hardening (HTTPS, backups) per Phase G.
+5. Native clients per ROADMAP Phase F; ops hardening (HTTPS, backups) per Phase G.

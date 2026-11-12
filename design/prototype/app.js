@@ -516,6 +516,12 @@
       const r = await apiFetch(`/api/catalog/shaped${q}`);
       if (r.ok) {
         window.MOCK = r.body;
+        // When profile-scoped flags are present, the server is the source of truth for watchlist state.
+        const items = [...(r.body.films || []), ...(r.body.series || [])];
+        if (items.some(it => "inWatchlist" in it)) {
+          state.watchlistIds = new Set(items.filter(it => it.inWatchlist).map(it => it.id));
+          try { localStorage.setItem("homeTheaterWatchlist", JSON.stringify([...state.watchlistIds])); } catch { /* storage may be unavailable */ }
+        }
         renderView();
         buildFocusGroups();
         renderTopnav();
@@ -1013,6 +1019,24 @@
         })
         .catch(() => { $("#detailFeedback").textContent = "Could not reach the server."; });
       return;
+    }
+    if (action === "watchlist" && window.HAS_SERVER) {
+      const profile = window.HOME_PROFILE_ID();
+      if (profile) {
+        const currently = state.watchlistIds.has(item.id);
+        // optimistic toggle for immediate UI feedback; the catalog refresh re-syncs from the server
+        if (currently) state.watchlistIds.delete(item.id);
+        else state.watchlistIds.add(item.id);
+        state.detailDirty = true;
+        updateDetailActionButtons();
+        $("#detailFeedback").textContent = currently ? "Removed from Watchlist." : "Added to Watchlist.";
+        apiFetch(`/api/watchlist/${encodeURIComponent(profile)}/${encodeURIComponent(item.id)}`,
+          { method: currently ? "DELETE" : "PUT" })
+          .then(() => refreshCatalog())
+          .catch(() => { $("#detailFeedback").textContent = "Could not reach the server."; });
+        return;
+      }
+      // no active profile: fall through to the browser-local behavior below
     }
     const collection = action === "watchlist" ? state.watchlistIds : state.watchedIds;
     const storageKey = action === "watchlist" ? "homeTheaterWatchlist" : "homeTheaterWatched";
