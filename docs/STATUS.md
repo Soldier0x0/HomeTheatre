@@ -96,6 +96,20 @@ All verified by tests (24 passing) and a headless-browser end-to-end suite (19 c
 - Data-model decision recorded (ADR-0008): SQLite + join tables now; embedded graph store optional
   later; never a networked dependency.
 
+## Audio track selection pass (2026-11-12, later still)
+
+- `/api/files/{id}/capability` now reports `audio_tracks` (index/codec/language per track),
+  `embedded_subtitles`, and an honest note when track switching applies.
+- `GET /api/stream/{id}?audio=N` carries input audio track N through the transcoder; a non-default
+  track always takes the transcode path (a live stream cannot switch tracks mid-flight).
+- Player: audio pills appear when a file has 2+ audio tracks; switching restarts the stream at the
+  current playhead (direct-play files switch by moving to server transcode — stated in the on-screen
+  note). Verified in a real browser: pills render, switch restarts with `audio=1&start=`, playback
+  resumes, no JS errors.
+- Honest limits: embedded subtitle streams are still not served (sidecar `.srt` only — bitmap
+  formats like PGS cannot become WebVTT); the mpeg program-stream container doesn't preserve
+  per-track language tags, so such files list tracks by codec without a language.
+
 ## Latest visual refinement
 
 ## Latest visual refinement
@@ -181,9 +195,9 @@ All verified by tests (24 passing) and a headless-browser end-to-end suite (19 c
 
 - Metadata provider *enabled by default* (TMDb is implemented but disabled without a server-side
   key; no provider-based artwork caching policy yet).
-- External subtitle providers (hash matching, downloads). Sidecar support is implemented.
-- Hardware-accelerated transcoding; mpv/libmpv playback engine; audio/subtitle track selection
-  inside transcode (only the first audio track is carried over today).
+- External subtitle providers (hash matching, downloads) and *embedded* subtitle streams (sidecar
+  support is implemented; bitmap codecs like PGS cannot become WebVTT).
+- Hardware-accelerated transcoding; mpv/libmpv playback engine.
 - Media-source mounting/monitoring, network share discovery and mounting (Settings form is demo),
   multi-device indexing.
 - Durable background-job store, scan cancellation, scan pause/resume (in-process threads only).
@@ -193,11 +207,10 @@ All verified by tests (24 passing) and a headless-browser end-to-end suite (19 c
 
 ## Next
 
-1. Audio/subtitle track selection in the player (transcode currently maps the first audio track
-   only); per-profile language preferences once tracks are selectable.
-2. Network share mounting (SMB/NFS) behind the existing source model, replacing the demo form
+1. Network share mounting (SMB/NFS) behind the existing source model, replacing the demo form
    (needs a host with mount privileges or pre-mounted shares).
-3. Durable scan jobs (cancel/pause, progress percentage) for large libraries.
-4. Metadata provider rollout policy: key distribution, cache budget, provider-first vs local-first
+2. Durable scan jobs (cancel/pause, progress percentage) for large libraries.
+3. Metadata provider rollout policy: key distribution, cache budget, provider-first vs local-first
    per household preference (the Settings artwork-priority control is still local-only).
+4. Per-profile default audio/subtitle language preferences (tracks are selectable now).
 5. Native clients per ROADMAP Phase F; ops hardening (HTTPS, backups) per Phase G.

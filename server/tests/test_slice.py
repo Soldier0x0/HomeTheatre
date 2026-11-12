@@ -461,6 +461,41 @@ def test_watchlist_cleans_up_on_profile_and_title_removal(client):
     assert client.get("/api/watchlist/p1").json()["items"] == []
 
 
+def test_capability_audio_tracks_and_switch(client):
+    movie_dir = "Movies/Multi Audio (2019)"
+    _synth_video(client, f"{movie_dir}/Multi Audio (2019).mp4",
+                 "-c:v", "libx264", "-c:a", "aac", dur=2)
+    import subprocess
+    import static_ffmpeg.run as sfr
+    ffmpeg, _ = sfr.get_or_fetch_platform_executables_else_raise()
+    out = client.media_root / f"{movie_dir}/Multi Audio (2019).mp4"
+    subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "testsrc=size=128x96:rate=10:duration=2",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                    "-f", "lavfi", "-i", "sine=frequency=880:duration=2",
+                    "-map", "0:v", "-map", "1:a", "-map", "2:a",
+                    "-metadata:s:a:0", "language=eng", "-metadata:s:a:1", "language=jpn",
+                    "-c:v", "libx264", "-c:a", "aac", "-y", str(out)],
+                   check=True, capture_output=True)
+    scan(client)
+    shaped = client.get("/api/catalog/shaped").json()
+    film = next(f for f in shaped["films"] if f["title"] == "Multi Audio")
+    fid = film["stream"].rsplit("/", 1)[1]
+    cap = client.get(f"/api/files/{fid}/capability").json()
+    assert [t["lang"] for t in cap["audio_tracks"]] == ["eng", "jpn"]
+    assert cap["audio_tracks"][1]["codec"] == "aac"
+
+    # selecting a non-default audio track forces the transcode path
+    r = client.get(f"{film['stream']}?transcode=force&audio=1")
+    assert r.status_code == 200
+    assert r.headers["x-home-theater-mode"] == "transcoded"
+    assert b"ftyp" in r.content[:64]
+    # direct-play file with audio=1 also goes through the transcoder (honest restart protocol)
+    r2 = client.get(f"{film['stream']}?audio=1")
+    assert r2.status_code == 200
+    assert r2.headers["x-home-theater-mode"] == "transcoded"
+
+
 # ---------------------------------------------------------------------------
 # Admin boundary
 # ---------------------------------------------------------------------------

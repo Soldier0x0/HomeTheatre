@@ -65,6 +65,13 @@ never silently pretends.
 keeping the direct-play path byte-accurate and range-complete. Server-side CPU transcode is the
 reversible default; mpv/libmpv client engine stays PROPOSED for the native clients.
 
+**Addendum (same day):** audio track selection follows the same honesty rules — the capability
+endpoint publishes the real track table (`audio_tracks`), `?audio=N` maps input audio track N, and
+because a live stream cannot switch tracks mid-flight every switch restarts the stream at the
+current playhead (direct-play files move to server transcode, stated in the UI). A non-default
+track always forces the transcode path. Embedded subtitle streams remain unserved: bitmap codecs
+(PGS/VobSub) cannot become WebVTT, and converting styled ASS would silently lose styling.
+
 ## ADR-0006 | Subtitles: local sidecars only — ADOPTED 2026-11-12
 
 **Decision:** Subtitle support covers `.srt` sidecars beside the video (`<stem>.srt`,

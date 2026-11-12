@@ -646,8 +646,11 @@ def remove_from_watchlist(profile_id: str, title_id: str, request: Request):
 # Streaming + artwork
 # ---------------------------------------------------------------------------
 
-def _transcode_response(path: Path, start_sec: float):
-    """On-demand transcode to fragmented MP4 (H.264/AAC) streamed from ffmpeg stdout (ADR-0005)."""
+def _transcode_response(path: Path, start_sec: float, audio_index: int = 0):
+    """On-demand transcode to fragmented MP4 (H.264/AAC) streamed from ffmpeg stdout (ADR-0005).
+
+    audio_index selects which input audio track to carry over (-map 0:a:N?); the '?' keeps
+    video-only files transcodable."""
     from fastapi.responses import StreamingResponse
     ffmpeg = ffmpeg_binary()
     if not ffmpeg:
@@ -659,7 +662,7 @@ def _transcode_response(path: Path, start_sec: float):
     if start_sec > 0:
         cmd += ["-ss", f"{start_sec:.3f}"]
     cmd += ["-i", str(path),
-            "-map", "0:v:0", "-map", "0:a:0?",
+            "-map", "0:v:0", "-map", f"0:a:{max(0, audio_index)}?",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
             "-c:a", "aac", "-b:a", "160k",
             "-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "pipe:1"]
@@ -688,21 +691,23 @@ def _transcode_response(path: Path, start_sec: float):
 @router.get("/stream/{file_id}")
 def stream(file_id: str, request: Request,
            range_header: str | None = Header(default=None, alias="Range"),
-           transcode: str = "auto", start: float = 0.0):
+           transcode: str = "auto", start: float = 0.0, audio: int = 0):
     """Direct HTTP-range streaming when the file is browser-compatible (per its stored probe);
-    on-demand transcode otherwise. transcode=direct|auto|force. Honest mode header on every reply."""
+    on-demand transcode otherwise. transcode=direct|auto|force, audio=<input audio track index>
+    (transcode path only). Honest mode header on every reply."""
     path, root, row = _resolve_media_file(request.app.state.db, file_id)
     probe = json.loads(row["probe_json"]) if row["probe_json"] else None
-    # auto: transcode only when a probe proves the file is incompatible.
-    # An unprobed file direct-plays (unknown ≠ incompatible); force always transcodes.
-    needs_transcode = (transcode == "force"
+    # auto: transcode only when a probe proves the file is incompatible, or when the client
+    # explicitly picks a non-default audio track (HTML5 cannot switch tracks in a stream).
+    forced_by_audio = audio > 0
+    needs_transcode = (transcode == "force" or forced_by_audio
                        or (transcode != "direct"
                            and probe is not None and not probe.get("browser_compatible")))
     if needs_transcode and start >= 0:
         try:
-            return _transcode_response(path, max(0.0, start))
+            return _transcode_response(path, max(0.0, start), audio_index=max(0, audio))
         except HTTPException as exc:
-            if transcode == "force" or exc.status_code != 503:
+            if transcode == "force" or forced_by_audio or exc.status_code != 503:
                 raise
             # auto + no ffmpeg: fall through to direct play with an honest mode header
     return _serve_local_file(path, root, range_header)
@@ -718,7 +723,15 @@ def file_capability(file_id: str, request: Request):
                 "detail": "No ffprobe result for this file yet (run a rescan with force=true)."}
     mode = "direct" if probe["browser_compatible"] else "transcode"
     transcoder_ready = ffmpeg_binary() is not None
-    return {"probed": True, "mode": mode, "transcoder_ready": transcoder_ready, **probe}
+    audio_tracks = [{"index": i, "codec": probe["audio_codecs"][i] if i < len(probe["audio_codecs"]) else None,
+                     "lang": probe["audio_langs"][i] if i < len(probe["audio_langs"]) else ""}
+                    for i in range(max(len(probe["audio_codecs"]), len(probe["audio_langs"])))]
+    return {"probed": True, "mode": mode, "transcoder_ready": transcoder_ready,
+            "audio_tracks": audio_tracks,
+            "embedded_subtitles": probe.get("subtitle_codecs") or [],
+            "note": ("Embedded subtitles are not served (sidecar .srt only). "
+                     "Switching audio tracks restarts the stream via server transcode."
+                     if len(audio_tracks) > 1 else ""), **probe}
 
 
 # ---------------------------------------------------------------------------

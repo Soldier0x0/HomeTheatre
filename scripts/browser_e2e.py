@@ -109,22 +109,31 @@ with sync_playwright() as p:
     # open settings view via nav (profile control switches to settings)
     page.wait_for_timeout(400)
     page.wait_for_selector("#sources", timeout=5000)
-    check("server source row listed", "E2E" in page.locator("#sources").inner_text())
+    source_names = [s["name"] for s in _json.loads(
+        urllib.request.urlopen(f"{BASE}/api/sources").read())["sources"]]
+    settings_text = page.locator("#sources").inner_text()
+    check("server source row listed",
+          any(name in settings_text for name in source_names), source_names)
     check("admin section exists", page.locator("#admin").count() == 1)
     check("scan button exists", page.locator("[data-scan-source]").count() >= 1)
     body_text = page.locator("#sources").inner_text()
     check("source shows scanned status", "ok" in body_text or "scanned" in body_text, body_text[:120])
 
-    # admin password setup flow
-    page.fill("#adminSetupForm [name='adminPassword']", "browser e2e pass 1")
-    page.fill("#adminSetupForm [name='adminPasswordConfirm']", "browser e2e pass 1")
-    page.locator("#adminSetupForm button[type='submit']").click()
-    page.wait_for_timeout(800)
-    note_exists = page.locator("#adminSetupNote").count() > 0
-    note_text = page.locator("#adminSetupNote").inner_text().lower() if note_exists else ""
-    form_gone = page.locator("#adminSetupForm").count() == 0
-    check("admin setup note confirms", ("set" in note_text) or form_gone,
-          note_text or "form still present")
+    # admin password setup flow (skipped when a password is already configured on this DB)
+    if page.locator("#adminSetupForm").count():
+        page.fill("#adminSetupForm [name='adminPassword']", "browser e2e pass 1")
+        page.fill("#adminSetupForm [name='adminPasswordConfirm']", "browser e2e pass 1")
+        page.locator("#adminSetupForm button[type='submit']").click()
+        page.wait_for_timeout(800)
+        note_exists = page.locator("#adminSetupNote").count() > 0
+        note_text = page.locator("#adminSetupNote").inner_text().lower() if note_exists else ""
+        form_gone = page.locator("#adminSetupForm").count() == 0
+        check("admin setup note confirms", ("set" in note_text) or form_gone,
+              note_text or "form still present")
+    else:
+        callout = page.locator("#admin").inner_text()
+        check("admin already configured shows callout", "password is set" in callout.lower(),
+              callout[:120])
 
     # file listing + delete flow
     page.select_option("#adminSourceSelect", index=1)

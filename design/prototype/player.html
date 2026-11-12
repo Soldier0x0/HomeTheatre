@@ -65,6 +65,11 @@
       const stage = document.getElementById("playerStage");
       let lastSavedSec = 0;
       let saveTimer = null;
+      // Shared player state (audio switching and seek-restart read these across calls)
+      let transcodeMode = false;
+      let audioTracks = [];
+      let audioChoice = 0; // selected input audio track index
+      let playingFrom = 0;
 
       // honor the household theme chosen in Settings
       try {
@@ -84,6 +89,47 @@
         sec = Math.max(0, Math.round(sec));
         const m = Math.floor(sec / 60), s = sec % 60;
         return `${m}:${String(s).padStart(2, "0")}`;
+      }
+
+      // Audio track selection (ADR-0005 honesty rules): a stream cannot switch tracks
+      // mid-flight, so every switch restarts the stream at the current playhead, and a
+      // direct-play file switches by moving to server transcode (stated in the note).
+      function buildAudioBar() {
+        if (audioTracks.length < 2) return;
+        const bar = document.getElementById("subtitleBar");
+        audioTracks.forEach(t => {
+          const btn = document.createElement("button");
+          btn.className = "pill";
+          btn.type = "button";
+          const label = t.lang && t.lang !== "" ? t.lang.toUpperCase() : `Audio ${t.index + 1}`;
+          btn.textContent = `Audio ${label}`;
+          btn.dataset.audioIndex = String(t.index);
+          btn.setAttribute("aria-pressed", String(t.index === audioChoice));
+          btn.addEventListener("click", () => switchAudio(t.index));
+          bar.appendChild(btn);
+        });
+      }
+
+      function switchAudio(index) {
+        if (index === audioChoice) return;
+        audioChoice = index;
+        const pos = Math.max(0, Math.floor(video.currentTime || playingFrom));
+        playingFrom = pos;
+        transcodeMode = true; // audio>0 always goes through the server transcoder
+        const [base, query = ""] = video.src.split("?");
+        const params = new URLSearchParams(query);
+        params.set("transcode", "force");
+        params.set("audio", String(index));
+        params.set("start", String(pos));
+        video.src = `${base}?${params.toString()}`;
+        document.querySelectorAll("#subtitleBar button[data-audio-index]").forEach(b => {
+          b.setAttribute("aria-pressed", String(Number(b.dataset.audioIndex) === index));
+        });
+        const t = audioTracks.find(x => x.index === index) || {};
+        const label = t.lang && t.lang !== "" ? t.lang.toUpperCase() : `track ${index + 1}`;
+        document.getElementById("streamModeNote").textContent =
+          `Audio → ${label} | server transcode from ${fmt(pos)}`;
+        video.play().catch(() => { showOverlay(`Ready from ${fmt(pos)}.`, { start: true }); });
       }
 
       async function loadSubtitles(fileId) {
@@ -187,11 +233,11 @@
         }
 
         const fileId = streamUrl.split("/").pop();
-        let transcodeMode = false;
         try {
           const cap = await fetch(`/api/files/${encodeURIComponent(fileId)}/capability`, { cache: "no-store" });
           if (cap.ok) {
             const c = await cap.json();
+            audioTracks = (c.audio_tracks || []).filter(Boolean);
             if (c.probed && c.mode === "transcode" && c.transcoder_ready) {
               transcodeMode = true;
               streamUrl += (streamUrl.includes("?") ? "&" : "?") + "transcode=force";
@@ -212,7 +258,7 @@
         const saved = await fetchPlayback();
         const startSec = saved && saved.position_sec > 5 && !saved.watched
           ? Math.min(saved.position_sec, 36000) : 0;
-        let playingFrom = startSec;
+        playingFrom = startSec;
         if (startSec > 0 && !transcodeMode) {
           video.addEventListener("loadedmetadata", () => {
             video.currentTime = Math.min(startSec, (video.duration || startSec) - 5);
@@ -233,6 +279,7 @@
           video.src = `${base}?${params.toString()}`;
           video.play().catch(() => { /* user can press play */ });
         });
+        buildAudioBar();
         video.addEventListener("loadedmetadata", () => {
           saveTimer = setInterval(() => savePlayback(), 5000);
         }, { once: true });
