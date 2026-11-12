@@ -8,3 +8,8 @@ __pycache__/
 *.sqlite3
 .env
 .DS_Store
+*.db-shm
+*.db-wal
+*.db-journal
+playwright-report/
+test-results/

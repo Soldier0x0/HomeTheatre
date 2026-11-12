@@ -19,6 +19,9 @@
     .player-overlay.hidden { display: none; }
     .player-overlay p { margin: 12px auto 0; max-width: 52ch; opacity: 0.75; font-size: 0.9rem; line-height: 1.5; }
     .player-overlay .pill { cursor: pointer; }
+    .subtitle-bar { position: absolute; left: 22px; bottom: 34px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .subtitle-bar .pill { font-size: 0.8rem; padding: 6px 14px; cursor: pointer; }
+    .stream-mode-note { position: absolute; right: 22px; bottom: 34px; font-size: 0.75rem; opacity: 0.55; }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   </style>
 </head>
@@ -36,6 +39,8 @@
   </nav>
   <main class="player-stage" id="playerStage">
     <video id="video" controls playsinline preload="metadata"></video>
+    <div class="subtitle-bar" id="subtitleBar" aria-label="Subtitle tracks"></div>
+    <span class="stream-mode-note" id="streamModeNote" aria-live="polite"></span>
     <div class="player-overlay" id="playerOverlay">
       <div>
         <button class="pill" id="startBtn" hidden>▶&nbsp;&nbsp;Play</button>
@@ -79,6 +84,38 @@
         sec = Math.max(0, Math.round(sec));
         const m = Math.floor(sec / 60), s = sec % 60;
         return `${m}:${String(s).padStart(2, "0")}`;
+      }
+
+      async function loadSubtitles(fileId) {
+        const bar = document.getElementById("subtitleBar");
+        try {
+          const r = await fetch(`/api/subtitles/${encodeURIComponent(fileId)}`, { cache: "no-store" });
+          if (!r.ok) return;
+          const subs = (await r.json()).subtitles || [];
+          if (!subs.length) return;
+          subs.forEach((s, i) => {
+            const track = document.createElement("track");
+            track.kind = "subtitles";
+            track.label = s.label;
+            track.srclang = s.lang === "und" ? "" : s.lang;
+            track.src = `/api/subtitles/${encodeURIComponent(fileId)}/${i}/track`;
+            video.appendChild(track);
+            const btn = document.createElement("button");
+            btn.className = "pill";
+            btn.type = "button";
+            btn.textContent = `CC ${s.label}`;
+            btn.setAttribute("aria-pressed", "false");
+            btn.addEventListener("click", () => {
+              const tracks = Array.from(video.textTracks);
+              const active = tracks[i] && tracks[i].mode === "showing";
+              tracks.forEach(t => { t.mode = "disabled"; });
+              tracks[i].mode = active ? "disabled" : "showing";
+              bar.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", "false"));
+              btn.setAttribute("aria-pressed", String(!active));
+            });
+            bar.appendChild(btn);
+          });
+        } catch { /* subtitle listing is best-effort */ }
       }
 
       async function fetchPlayback() {
@@ -149,20 +186,58 @@
           return;
         }
 
+        const fileId = streamUrl.split("/").pop();
+        let transcodeMode = false;
+        try {
+          const cap = await fetch(`/api/files/${encodeURIComponent(fileId)}/capability`, { cache: "no-store" });
+          if (cap.ok) {
+            const c = await cap.json();
+            if (c.probed && c.mode === "transcode" && c.transcoder_ready) {
+              transcodeMode = true;
+              streamUrl += (streamUrl.includes("?") ? "&" : "?") + "transcode=force";
+              document.getElementById("streamModeNote").textContent =
+                `Transcoding ${c.video_codec || ""} → H.264 (server)`.trim();
+            } else if (c.probed && c.mode === "transcode" && !c.transcoder_ready) {
+              document.getElementById("streamModeNote").textContent =
+                `This file is ${c.video_codec || "unsupported"}; no ffmpeg on the server, attempting direct play`;
+            } else if (c.probed && c.mode === "direct") {
+              document.getElementById("streamModeNote").textContent =
+                `Direct play | ${c.video_codec || ""} ${c.resolution || ""}`.trim();
+            }
+          }
+        } catch { /* capability info is best-effort; the stream still loads */ }
+
+        loadSubtitles(fileId);
+
         const saved = await fetchPlayback();
-        video.src = streamUrl;
-        if (saved && saved.position_sec > 5 && !saved.watched) {
+        const startSec = saved && saved.position_sec > 5 && !saved.watched
+          ? Math.min(saved.position_sec, 36000) : 0;
+        let playingFrom = startSec;
+        if (startSec > 0 && !transcodeMode) {
           video.addEventListener("loadedmetadata", () => {
-            video.currentTime = Math.min(saved.position_sec, (video.duration || saved.position_sec) - 5);
+            video.currentTime = Math.min(startSec, (video.duration || startSec) - 5);
           }, { once: true });
+        } else if (startSec > 0 && transcodeMode) {
+          streamUrl += (streamUrl.includes("?") ? "&" : "?") + `start=${startSec}`;
         }
+        video.src = streamUrl;
+        // Transcoded streams are generated live; seeking restarts ffmpeg at the new position.
+        video.addEventListener("seeking", () => {
+          if (!transcodeMode) return;
+          const target = video.currentTime;
+          if (Math.abs(target - playingFrom) < 2) return;
+          playingFrom = target;
+          const [base, query = ""] = video.src.split("?");
+          const params = new URLSearchParams(query);
+          params.set("start", String(Math.max(0, Math.floor(target))));
+          video.src = `${base}?${params.toString()}`;
+          video.play().catch(() => { /* user can press play */ });
+        });
         video.addEventListener("loadedmetadata", () => {
           saveTimer = setInterval(() => savePlayback(), 5000);
         }, { once: true });
         video.play().then(() => hideOverlay()).catch(() => {
-          showOverlay(saved && saved.position_sec > 5
-            ? `Ready to resume from ${fmt(saved.position_sec)}.`
-            : "Ready to play.", { start: true });
+          showOverlay(startSec > 0 ? `Ready to resume from ${fmt(startSec)}.` : "Ready to play.", { start: true });
         });
       }
       window.addEventListener("beforeunload", () => { if (saveTimer) clearInterval(saveTimer); });

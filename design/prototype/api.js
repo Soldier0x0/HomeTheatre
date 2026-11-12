@@ -30,12 +30,15 @@
     try {
       const health = await fetch("/api/health", { cache: "no-store" });
       if (!health.ok) return false;
-      const catalog = await (await fetch("/api/catalog/shaped", { cache: "no-store" })).json();
-      window.MOCK = catalog; // same contract as mock-data.js; sample data stays in mock-data.js
       window.HAS_SERVER = true;
       await syncProfile();
+      const profile = window.HOME_PROFILE_ID();
+      const q = profile ? `?profile=${encodeURIComponent(profile)}` : "";
+      const catalog = await (await fetch(`/api/catalog/shaped${q}`, { cache: "no-store" })).json();
+      window.MOCK = catalog; // same contract as mock-data.js; sample data stays in mock-data.js
       return true;
     } catch {
+      window.HAS_SERVER = false;
       return false; // fall back to the bundled sample catalog
     }
   })();

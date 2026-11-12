@@ -370,6 +370,15 @@
     const sourceRows = state.sources.length ? state.sources.map(source => `
       <article class="source-row"><span class="source-icon" aria-hidden="true">${source.location === "network" ? "⌁" : "▤"}</span><div class="source-copy"><strong>${escapeHTML(source.name)}</strong><span>${escapeHTML(sourceDescription(source))}</span><small>Saved in this browser | connection not tested</small></div><button class="source-remove" data-remove-source="${escapeHTML(source.id)}" aria-label="Remove ${escapeHTML(source.name)}">Remove</button></article>`).join("")
       : `<div class="source-empty"><strong>No media sources added</strong><span>Add a folder on the Home Theater server or describe a network share hosted by another device.</span></div>`;
+    const serverSourceRows = (state.serverSources || []).length
+      ? state.serverSources.map(source => {
+          const scanning = (state.scanJobs || {})[source.id] === "running";
+          const status = escapeHTML(source.status || "unknown");
+          const detail = source.status_detail ? ` | ${escapeHTML(source.status_detail)}` : "";
+          const lastScan = source.last_scan_at ? ` | scanned ${escapeHTML(String(source.last_scan_at).replace("T", " "))}` : "";
+          return `<article class="source-row"><span class="source-icon" aria-hidden="true">▤</span><div class="source-copy"><strong>${escapeHTML(source.name)}</strong><span>${escapeHTML(source.root_path)}</span><small>${status}${detail}${lastScan}${scanning ? " | scanning now…" : ""}</small></div><span class="profile-card-actions"><button class="profile-edit" data-scan-source="${escapeHTML(source.id)}">${scanning ? "Scanning…" : "Scan"}</button><button class="profile-remove" data-remove-server-source="${escapeHTML(source.id)}" aria-label="Remove source ${escapeHTML(source.name)}">Remove</button></span></article>`;
+        }).join("")
+      : `<div class="source-empty"><strong>No media sources on the server</strong><span>Add a folder below. The server scans it and merges it into the household library.</span></div>`;
     const editingProfile = state.profiles.find(profile => profile.id === state.profileEditId) || null;
     const profileSection = `
       <section class="settings-section" id="profiles"><div class="settings-section-title"><div><p class="catalog-kicker">HOUSEHOLD</p><h2>Profiles</h2><p>Create a viewing identity and choose its color. Profiles have no password.</p></div><span class="source-count">${state.profiles.length} ${state.profiles.length === 1 ? "profile" : "profiles"}</span></div>
@@ -382,7 +391,7 @@
         <header class="settings-page-header"><div><p class="catalog-kicker">YOUR HOME THEATER</p><h1>Settings</h1><p>Shape the experience and organize where your household media lives.</p></div><span class="settings-demo-tag">Prototype settings</span></header>
         <div class="settings-layout">
           <nav class="settings-rail" aria-label="Settings sections">
-            <a href="#profiles">Profiles</a><a href="#appearance">Appearance</a><a href="#layout">Browsing layout</a><a href="#sources">Media sources</a><a href="#artwork">Metadata and artwork</a><a href="#performance">Performance</a>
+            <a href="#profiles">Profiles</a><a href="#appearance">Appearance</a><a href="#layout">Browsing layout</a><a href="#sources">Media sources</a><a href="#artwork">Metadata and artwork</a><a href="#performance">Performance</a>${window.HAS_SERVER ? '<a href="#admin">Administration</a>' : ""}
           </nav>
           <div class="settings-content">
             ${profileSection}
@@ -396,10 +405,10 @@
               ${group("Library and Discover", "catalogColumns", catalogChoices, `Columns on wide screens | ${portrait ? "portrait default 6" : "landscape default 3"}`)}
               <p class="settings-footnote">Portrait mode doubles the row and grid defaults. Phone and tablet layouts cap columns for readability.</p>
             </section>
-            <section class="settings-section" id="sources"><div class="settings-section-title"><div><p class="catalog-kicker">YOUR COLLECTION</p><h2>Media sources</h2><p>Folders from attached drives and network shares can appear in one consolidated library.</p></div><span class="source-count">${state.sources.length} ${state.sources.length === 1 ? "source" : "sources"}</span></div>
-              <div class="source-list">${sourceRows}</div>
-              <form class="source-form local-source-form" id="localSourceForm"><div class="source-form-heading"><strong>Folder on this server</strong><span>For a disk attached to the Debian/Home Theater server</span></div><label><span>Optional label</span><input name="sourceName" maxlength="48" placeholder="Movies drive"></label><label class="source-path-field"><span>Absolute path on Home Theater server</span><input name="serverPath" maxlength="240" placeholder="/srv/media/movies" required></label><button class="settings-primary" type="submit">Add server folder</button></form>
-              <form class="source-form network-source-form" id="networkSourceForm"><div class="source-form-heading"><strong>Share from another device</strong><span>For a Windows/Linux desktop, NAS, or another server</span></div><div class="network-discovery-row"><button type="button" class="source-discover" data-discover-devices>Find devices</button><p id="deviceDiscoveryStatus" class="source-discovery-note">Enter a known host or preview the future server-side discovery flow.</p></div><label><span>Device name</span><input name="deviceName" maxlength="64" placeholder="Media PC or NAS" required></label><label><span>Device address</span><input name="address" maxlength="128" placeholder="media-pc.local or 192.168.1.40" required></label><label><span>Share protocol</span><select name="protocol"><option value="smb">SMB | Windows share</option><option value="nfs">NFS | Linux/NAS export</option></select></label><label><span>Share or export name</span><input name="share" maxlength="128" placeholder="Movies" required></label><label><span>Folder inside share (optional)</span><input name="subfolder" maxlength="180" placeholder="Series/Anime"></label><label><span>Optional label</span><input name="sourceName" maxlength="48" placeholder="Anime collection"></label><button class="settings-primary" type="submit">Add network share</button></form>
+            <section class="settings-section" id="sources"><div class="settings-section-title"><div><p class="catalog-kicker">YOUR COLLECTION</p><h2>Media sources</h2><p>Folders from attached drives and network shares can appear in one consolidated library.</p></div><span class="source-count">${(state.serverSources || []).length || state.sources.length} ${((state.serverSources || []).length || state.sources.length) === 1 ? "source" : "sources"}</span></div>
+              ${window.HAS_SERVER ? `<div class="source-list">${serverSourceRows}</div><p id="sourceAddStatus" class="source-discovery-note" aria-live="polite"></p>` : `<div class="source-list">${sourceRows}</div>`}
+              <form class="source-form local-source-form" id="localSourceForm"><div class="source-form-heading"><strong>Folder on this server</strong><span>${window.HAS_SERVER ? "Scanned and indexed by the Home Theater server" : "For a disk attached to the Debian/Home Theater server"}</span></div><label><span>Optional label</span><input name="sourceName" maxlength="48" placeholder="Movies drive"></label><label class="source-path-field"><span>Absolute path on Home Theater server</span><input name="serverPath" maxlength="240" placeholder="/srv/media/movies" required></label><button class="settings-primary" type="submit">Add server folder</button></form>
+              <form class="source-form network-source-form" id="networkSourceForm" ${window.HAS_SERVER ? 'data-demo-only="true"' : ""}><div class="source-form-heading"><strong>Share from another device</strong><span>${window.HAS_SERVER ? "Not implemented yet | this form is demonstration only" : "For a Windows/Linux desktop, NAS, or another server"}</span></div><div class="network-discovery-row"><button type="button" class="source-discover" data-discover-devices>Find devices</button><p id="deviceDiscoveryStatus" class="source-discovery-note">Enter a known host or preview the future server-side discovery flow.</p></div><label><span>Device name</span><input name="deviceName" maxlength="64" placeholder="Media PC or NAS" required></label><label><span>Device address</span><input name="address" maxlength="128" placeholder="media-pc.local or 192.168.1.40" required></label><label><span>Share protocol</span><select name="protocol"><option value="smb">SMB | Windows share</option><option value="nfs">NFS | Linux/NAS export</option></select></label><label><span>Share or export name</span><input name="share" maxlength="128" placeholder="Movies" required></label><label><span>Folder inside share (optional)</span><input name="subfolder" maxlength="180" placeholder="Series/Anime"></label><label><span>Optional label</span><input name="sourceName" maxlength="48" placeholder="Anime collection"></label><button class="settings-primary" type="submit">Add network share</button></form>
               <p class="settings-callout"><strong>How this works in production</strong>The Home Theater server connects to or mounts each approved share, scans its files, and merges them into one library. Device name and IP alone do not grant file access. Share credentials must be entered and stored securely on the server. A browser client cannot access another computer's folders.</p>
             </section>
             <section class="settings-section" id="artwork"><div class="settings-section-title"><div><p class="catalog-kicker">TITLE INFORMATION</p><h2>Metadata and artwork</h2><p>Automatic matching can fill gaps, with manual corrections when a title is missing or misidentified.</p></div></div>
@@ -412,13 +421,37 @@
               <label class="settings-toggle-row"><span><strong>Pause scans during playback</strong><small>Prioritize smooth playback on the host.</small></span><input type="checkbox" data-pref="pauseScanDuringPlayback" ${state.preferences.pauseScanDuringPlayback ? "checked" : ""}></label>
               <p class="settings-callout"><strong>Graphics hardware is optional</strong>Library indexing, metadata matching, image caching, and browsing do not need a GPU. Prefer direct play when the client supports the file. Hardware acceleration is only a server-side transcoding option and should be enabled only when the GPU, driver, and media format are verified.</p>
             </section>
-            <p class="settings-footnote">Theme, layout, profiles, sources, and preferences are saved in this browser. No media is scanned and no provider credentials are configured.</p>
+            ${window.HAS_SERVER ? adminSettingsSection() : ""}
+            <p class="settings-footnote">${window.HAS_SERVER
+              ? "Connected to the Home Theater server: profiles and media sources are stored on the server. Appearance, layout, and playback preferences stay in this browser."
+              : "Theme, layout, profiles, sources, and preferences are saved in this browser. No media is scanned and no provider credentials are configured."}</p>
           </div>
         </div>
       </section>`;
   }
 
-  function addMediaSource(form) {
+  function adminSettingsSection() {
+    const files = state.adminFiles || null;
+    const sourceOptions = (state.serverSources || []).map(s =>
+      `<option value="${escapeHTML(s.id)}" ${files?.sourceId === s.id ? "selected" : ""}>${escapeHTML(s.name)}</option>`).join("");
+    const fileRows = files?.files.length
+      ? files.files.map(f => `
+        <article class="source-row"><span class="source-icon" aria-hidden="true">▤</span><div class="source-copy"><strong>${escapeHTML(f.title || f.path)}</strong><span>${escapeHTML(f.path)}</span><small>${f.kind} | ${f.mode}${f.deleted ? " | deleted from disk (record kept)" : ""}</small></div>${f.deleted ? "" : `<button class="source-remove" data-delete-file="${escapeHTML(f.id)}" data-file-path="${escapeHTML(f.path)}" aria-label="Delete file ${escapeHTML(f.path)}">Delete file</button>`}</article>`).join("")
+      : "";
+    return `<section class="settings-section" id="admin">
+      <div class="settings-section-title"><div><p class="catalog-kicker">SERVER</p><h2>Administration</h2><p>The administrator password guards real file deletion. It is verified on the server and never stored in plain text.</p></div></div>
+      ${state.adminConfigured
+        ? `<p class="settings-callout"><strong>Administrator password is set.</strong> Deleting a file from disk requires it. Wrong attempts are rate limited and every attempt is audited without recording the password.</p>`
+        : `<form class="source-form" id="adminSetupForm"><div class="source-form-heading"><strong>Set administrator password</strong><span>At least 8 characters. Stored only as a scrypt hash.</span></div><label><span>Password</span><input type="password" name="adminPassword" minlength="8" autocomplete="new-password" required></label><label><span>Repeat password</span><input type="password" name="adminPasswordConfirm" minlength="8" autocomplete="new-password" required></label><button class="settings-primary" type="submit">Set password</button><p id="adminSetupNote" class="source-discovery-note" aria-live="polite"></p></form>`}
+      <div class="source-form-heading"><strong>Indexed files</strong><span>Removing a title from the library is on its detail sheet; deleting the actual file happens here.</span></div>
+      ${(state.serverSources || []).length
+        ? `<div class="network-discovery-row"><select id="adminSourceSelect" aria-label="Choose a source"><option value="">Choose a source…</option>${sourceOptions}</select><button type="button" class="source-discover" data-load-source-files>List files</button></div>`
+        : `<p class="source-discovery-note">Add a media source first.</p>`}
+      ${fileRows ? `<div class="source-list">${fileRows}</div>` : files ? `<p class="source-discovery-note">No indexed files in this source.</p>` : ""}
+    </section>`;
+  }
+
+  async function addMediaSource(form) {
     const data = new FormData(form);
     const id = `source-${Date.now()}`;
     if (form.id === "networkSourceForm") {
@@ -430,7 +463,25 @@
     } else {
       const serverPath = String(data.get("serverPath") || "").trim();
       if (!serverPath) return;
-      state.sources.push({ id, location: "server", name: String(data.get("sourceName") || "").trim() || serverPath.split("/").filter(Boolean).pop() || "Media folder", serverPath });
+      const label = String(data.get("sourceName") || "").trim() || serverPath.split("/").filter(Boolean).pop() || "Media folder";
+      if (window.HAS_SERVER) {
+        form.reset();
+        const statusEl = $("#sourceAddStatus");
+        try {
+          const r = await apiFetch("/api/sources", jsonOptions("POST", { name: label, root_path: serverPath }));
+          if (r.ok === 200 && r.body.id) {
+            if (statusEl) statusEl.textContent = "Source added. Scanning…";
+            await scanServerSource(r.body.id);
+          } else if (statusEl) {
+            statusEl.textContent = r.body?.detail || "The server rejected this source.";
+          }
+        } catch {
+          if (statusEl) statusEl.textContent = "Could not reach the server.";
+        }
+        await refreshServerData();
+        return;
+      }
+      state.sources.push({ id, location: "server", name: label, serverPath });
     }
     try { localStorage.setItem("homeTheaterSources", JSON.stringify(state.sources)); } catch { /* local storage may be unavailable */ }
     form.reset();
@@ -443,6 +494,142 @@
     try { localStorage.setItem("homeTheaterSources", JSON.stringify(state.sources)); } catch { /* local storage may be unavailable */ }
     renderSettings();
     buildFocusGroups();
+  }
+
+  /* ---------------- Server-backed settings & library actions (window.HAS_SERVER) ---------------- */
+
+  async function apiFetch(url, options = {}) {
+    const response = await fetch(url, { cache: "no-store", ...options });
+    const body = await response.json().catch(() => ({}));
+    return { ok: response.status, body };
+  }
+
+  function jsonOptions(method, payload) {
+    return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(payload) };
+  }
+
+  async function refreshCatalog() {
+    if (!window.HAS_SERVER) return;
+    try {
+      const profile = window.HOME_PROFILE_ID();
+      const q = profile ? `?profile=${encodeURIComponent(profile)}` : "";
+      const r = await apiFetch(`/api/catalog/shaped${q}`);
+      if (r.ok) {
+        window.MOCK = r.body;
+        renderView();
+        buildFocusGroups();
+        renderTopnav();
+      }
+    } catch { /* keep showing the previous catalog on transient errors */ }
+  }
+
+  async function refreshServerData() {
+    if (!window.HAS_SERVER) return;
+    try {
+      const [sources, admin, profiles] = await Promise.all([
+        apiFetch("/api/sources"), apiFetch("/api/admin/status"), apiFetch("/api/profiles"),
+      ]);
+      if (sources.ok) state.serverSources = sources.body.sources || [];
+      if (admin.ok) state.adminConfigured = Boolean(admin.body.configured);
+      if (profiles.ok) {
+        // Server profiles become the household list; ids are stable server ids.
+        state.profiles = (profiles.body.profiles || []).map(p => ({ id: p.id, name: p.name, color: p.color || "brass" }));
+        const currentId = JSON.parse(localStorage.getItem("homeTheaterCurrentProfile") || "null");
+        state.currentProfile = state.profiles.find(p => p.id === currentId) || state.profiles[0] || null;
+        if (state.currentProfile) {
+          try { localStorage.setItem("homeTheaterCurrentProfile", JSON.stringify(state.currentProfile.id)); } catch { /* storage may be unavailable */ }
+        }
+        saveProfiles();
+      }
+      if (state.view === "settings") { renderSettings(); buildFocusGroups(); }
+    } catch { /* transient server error; the UI keeps its last known state */ }
+  }
+
+  async function scanServerSource(sourceId) {
+    state.scanJobs = state.scanJobs || {};
+    state.scanJobs[sourceId] = "running";
+    renderSettings();
+    try {
+      const r = await apiFetch(`/api/sources/${encodeURIComponent(sourceId)}/scan`, jsonOptions("POST", {}));
+      const jobId = r.body?.job_id;
+      if (!jobId) throw new Error("no job");
+      for (;;) {
+        const job = await apiFetch(`/api/scan-jobs/${encodeURIComponent(jobId)}`);
+        if (job.ok !== 200 || job.body.state !== "running") {
+          state.scanJobs[sourceId] = job.body.state === "done" ? "done" : "error";
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 700));
+      }
+    } catch {
+      state.scanJobs[sourceId] = "error";
+    }
+    await refreshServerData();
+    await refreshCatalog();
+  }
+
+  async function removeServerSource(sourceId) {
+    const source = (state.serverSources || []).find(s => s.id === sourceId);
+    const name = source?.name || "this source";
+    if (!window.confirm(`Remove "${name}" from the library? Index records are deleted, but media files on disk are NOT deleted.`)) return;
+    try {
+      await apiFetch(`/api/sources/${encodeURIComponent(sourceId)}`, { method: "DELETE" });
+    } catch { /* server may be transiently unreachable */ }
+    await refreshServerData();
+    await refreshCatalog();
+  }
+
+  async function loadSourceFiles(sourceId) {
+    try {
+      const r = await apiFetch(`/api/sources/${encodeURIComponent(sourceId)}/files`);
+      state.adminFiles = { sourceId, files: r.ok ? (r.body.files || []) : [] };
+    } catch {
+      state.adminFiles = { sourceId, files: [] };
+    }
+    renderSettings();
+    buildFocusGroups();
+  }
+
+  async function deleteServerFile(fileId, filePath) {
+    if (!window.confirm(`Delete this file from disk?\n\n${filePath}\n\nThis permanently removes the file. Removing a catalog entry never does this.`)) return;
+    const password = window.prompt(`Administrator password required to delete:\n${filePath}`);
+    if (password == null) return;
+    try {
+      const r = await apiFetch(`/api/files/${encodeURIComponent(fileId)}/delete`,
+        jsonOptions("POST", { admin_password: password, confirm_path: filePath }));
+      if (r.ok === 200) {
+        await refreshCatalog();
+        if (state.adminFiles?.sourceId) await loadSourceFiles(state.adminFiles.sourceId);
+      } else if (r.ok === 403) {
+        window.alert("Administrator authorization failed. The attempt has been recorded in the audit log.");
+      } else if (r.ok === 429) {
+        window.alert("Too many attempts. Try again shortly.");
+      } else if (r.ok === 409) {
+        window.alert("No administrator password is configured yet. Set one in the Administration section first.");
+      } else {
+        window.alert(r.body?.detail || "Deletion failed.");
+      }
+    } catch {
+      window.alert("Could not reach the server.");
+    }
+  }
+
+  async function setupAdminPassword(form) {
+    const data = new FormData(form);
+    const password = String(data.get("adminPassword") || "");
+    const confirm = String(data.get("adminPasswordConfirm") || "");
+    const note = $("#adminSetupNote");
+    if (password.length < 8) { note.textContent = "Use at least 8 characters."; return; }
+    if (password !== confirm) { note.textContent = "The two passwords do not match."; return; }
+    try {
+      const r = await apiFetch("/api/admin/setup", jsonOptions("POST", { password }));
+      note.textContent = r.ok === 200 ? "Administrator password set." :
+        r.ok === 409 ? "An administrator password is already configured." :
+        r.body?.detail || "Setup failed.";
+      if (r.ok === 200) { form.reset(); await refreshServerData(); }
+    } catch {
+      note.textContent = "Could not reach the server.";
+    }
   }
 
   function saveLayout() {
@@ -485,6 +672,7 @@
     renderTopnav();
     renderSettings();
     buildFocusGroups();
+    if (window.HAS_SERVER) refreshCatalog(); // progress rows follow the selected profile
   }
 
   function saveProfiles() {
@@ -499,9 +687,21 @@
     nameField?.focus();
   }
 
-  function removeProfile(profileId) {
+  async function removeProfile(profileId) {
     const profile = state.profiles.find(entry => entry.id === profileId);
     if (!profile || !window.confirm(`Remove the ${profile.name} profile from this device?`)) return;
+    if (window.HAS_SERVER) {
+      try { await apiFetch(`/api/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" }); } catch { /* transient */ }
+      await refreshServerData();
+      if (state.currentProfile?.id === profileId) {
+        state.currentProfile = state.profiles[0] || null;
+        try { localStorage.setItem("homeTheaterCurrentProfile", JSON.stringify(state.currentProfile?.id || null)); } catch { /* storage may be unavailable */ }
+      }
+      renderTopnav();
+      renderSettings();
+      buildFocusGroups();
+      return;
+    }
     state.profiles = state.profiles.filter(entry => entry.id !== profileId);
     if (state.currentProfile?.id === profileId) state.currentProfile = state.profiles[0] || null;
     if (state.profileEditId === profileId) state.profileEditId = null;
@@ -512,12 +712,28 @@
     buildFocusGroups();
   }
 
-  function submitProfile(form) {
+  async function submitProfile(form) {
     const data = new FormData(form);
     const name = String(data.get("profileName") || "").trim().slice(0, 28);
     const color = Object.hasOwn(profilePalette, data.get("profileColor")) ? data.get("profileColor") : "brass";
     const editing = state.profiles.find(profile => profile.id === state.profileEditId);
     if (!name) return;
+    if (window.HAS_SERVER) {
+      // Server-backed profiles (passwordless, keyed by stable server ids).
+      try {
+        if (editing) {
+          await apiFetch(`/api/profiles/${encodeURIComponent(editing.id)}`, jsonOptions("PATCH", { name, color }));
+        } else {
+          const r = await apiFetch("/api/profiles", jsonOptions("POST", { name, color }));
+          const newId = r.ok === 200 ? r.body?.id : null;
+          await refreshServerData();
+          if (newId && !state.currentProfile) selectProfile(newId);
+        }
+        state.profileEditId = null;
+        renderTopnav();
+      } catch { /* transient server error; form keeps its values */ }
+      return;
+    }
     if (state.profiles.some(profile => profile.id !== editing?.id && profile.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
       const input = form.elements.profileName;
       input.setCustomValidity("A profile with that name already exists.");
@@ -686,6 +902,8 @@
     $("#detailDesc").textContent = item.desc || "MOCK item | description not available in the prototype.";
     $("#detailArtwork").src = item.backdrop || item.poster || item.art || "";
     $("#detailArtwork").alt = `${item.title} artwork`;
+    const removeBtn = $("#detailRemoveBtn");
+    if (removeBtn) removeBtn.hidden = !window.HAS_SERVER;
     $("#detailFeedback").textContent = item.seasons ? "Series guide | sample episode data." : "Prototype actions use sample data.";
     renderSeriesBrowser(item);
     updateDetailActionButtons();
@@ -780,12 +998,37 @@
         : "Playback is not connected in this prototype.";
       return;
     }
+    if (action === "remove") {
+      if (!window.HAS_SERVER) return;
+      if (!window.confirm(`Remove "${item.title}" from the library?\n\nCatalog records are removed. Media files on disk are NOT deleted.`)) return;
+      $("#detailFeedback").textContent = "Removing from the library…";
+      apiFetch(`/api/catalog/${encodeURIComponent(item.id)}/remove`, jsonOptions("POST", {}))
+        .then(r => {
+          if (r.ok === 200) {
+            $("#detailFeedback").textContent = r.body?.note || "Removed from the library.";
+            refreshCatalog();
+          } else {
+            $("#detailFeedback").textContent = r.body?.detail || "Removal failed.";
+          }
+        })
+        .catch(() => { $("#detailFeedback").textContent = "Could not reach the server."; });
+      return;
+    }
     const collection = action === "watchlist" ? state.watchlistIds : state.watchedIds;
     const storageKey = action === "watchlist" ? "homeTheaterWatchlist" : "homeTheaterWatched";
     if (collection.has(item.id)) collection.delete(item.id);
     else collection.add(item.id);
     state.detailDirty = true;
     try { localStorage.setItem(storageKey, JSON.stringify([...collection])); } catch { /* local storage may be unavailable */ }
+    if (window.HAS_SERVER && action === "watched") {
+      // Watched state also syncs to the server so Continue Watching stays correct.
+      const profile = window.HOME_PROFILE_ID();
+      if (profile) {
+        apiFetch(`/api/playback/${encodeURIComponent(profile)}/${encodeURIComponent(item.id)}`,
+          jsonOptions("PUT", { position_sec: 0, duration_sec: 0, watched: collection.has(item.id) }))
+          .then(() => refreshCatalog()).catch(() => { /* transient */ });
+      }
+    }
     updateDetailActionButtons();
     $("#detailFeedback").textContent = action === "watchlist"
       ? (collection.has(item.id) ? "Added to Watchlist." : "Removed from Watchlist.")
@@ -877,6 +1120,18 @@
     if (profileChoice) { selectProfile(profileChoice.dataset.profileId); return; }
     const removeSource = e.target.closest("[data-remove-source]");
     if (removeSource) { removeMediaSource(removeSource.dataset.removeSource); return; }
+    const scanSourceBtn = e.target.closest("[data-scan-source]");
+    if (scanSourceBtn) { scanServerSource(scanSourceBtn.dataset.scanSource); return; }
+    const removeServerSourceBtn = e.target.closest("[data-remove-server-source]");
+    if (removeServerSourceBtn) { removeServerSource(removeServerSourceBtn.dataset.removeServerSource); return; }
+    const loadFilesBtn = e.target.closest("[data-load-source-files]");
+    if (loadFilesBtn) {
+      const select = $("#adminSourceSelect");
+      if (select?.value) loadSourceFiles(select.value);
+      return;
+    }
+    const deleteFileBtn = e.target.closest("[data-delete-file]");
+    if (deleteFileBtn) { deleteServerFile(deleteFileBtn.dataset.deleteFile, deleteFileBtn.dataset.filePath); return; }
     if (e.target.closest("[data-discover-devices]")) {
       $("#deviceDiscoveryStatus").textContent = "Network discovery is not connected in this prototype. In production, the Home Theater server will discover supported shares or accept a known address.";
       return;
@@ -909,6 +1164,11 @@
     if (e.target.matches("#profileForm")) {
       e.preventDefault();
       submitProfile(e.target);
+      return;
+    }
+    if (e.target.matches("#adminSetupForm")) {
+      e.preventDefault();
+      setupAdminPassword(e.target);
       return;
     }
     if (!e.target.matches("#localSourceForm, #networkSourceForm")) return;
@@ -1017,6 +1277,8 @@
     window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", startHeroTimer);
     // re-center focus after resize
     window.addEventListener("resize", () => { applyLayoutSettings(); if ($$(".focused").length) applyFocus(state.groupIndex, state.itemIndex); });
+    // load server state (sources, profiles, admin status) once the UI is up
+    if (window.HAS_SERVER) refreshServerData();
   }
 
   document.addEventListener("DOMContentLoaded", () => {

@@ -1,4 +1,5 @@
 fastapi>=0.110
 uvicorn[standard]>=0.29
+static-ffmpeg>=2.2   # bundled ffmpeg/ffprobe binaries (downloaded on first use); probe + transcode degrade honestly without them
 pytest>=8
 httpx>=0.27

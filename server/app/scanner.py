@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .db import Database, new_id, utcnow
+from .probe import probe_file
 
 VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".mpg", ".mpeg", ".ts"}
 ART_BY_ROLE = {
@@ -194,8 +195,9 @@ def ensure_episode(db: Database, season_id: str, number: int, name: str | None,
     return eid
 
 
-def scan_source(db: Database, source_id: str) -> dict:
-    """Scan one configured source. Returns a result summary; never raises for per-file errors."""
+def scan_source(db: Database, source_id: str, force: bool = False) -> dict:
+    """Scan one configured source. Returns a result summary; never raises for per-file errors.
+    force=True re-examines unchanged files (used for re-probe/metadata refresh)."""
     src = db.one("SELECT * FROM media_sources WHERE id=?", (source_id,))
     if not src:
         return {"error": "source_not_found"}
@@ -215,17 +217,23 @@ def scan_source(db: Database, source_id: str) -> dict:
         st = path.stat()
         existing = db.one("SELECT id, size, mtime FROM media_files WHERE source_id=? AND rel_path=?",
                           (source_id, rel))
-        if existing and existing["size"] == st.st_size and abs(existing["mtime"] - st.st_mtime) < 1:
+        if not force and existing and existing["size"] == st.st_size and abs(existing["mtime"] - st.st_mtime) < 1:
             stats["skipped"] += 1
             continue
         try:
             nfo = read_nfo(path)
+            probe = probe_file(str(path))  # None when ffprobe unavailable; nothing is invented
+            probe_json = json.dumps(probe) if probe else None
+            runtime_min = int(round(probe["duration_sec"] / 60)) if probe and probe.get("duration_sec") else None
             ep = parse_episode(rel)
             if ep:
                 year = nfo.get("year") if nfo and nfo.get("year") is not None else ep.get("year")
                 tid, sid, sno = ensure_series(db, ep["show"] or "Unknown Series", year, nfo,
                                               Path(rel).parent)
                 eid = ensure_episode(db, sid, ep["episode"], ep["name"], None, None)
+                if runtime_min:
+                    db.execute("UPDATE episodes SET runtime_min=? WHERE id=? AND runtime_min IS NULL",
+                               (runtime_min, eid))
                 media_kind = "episode"
                 still = next((path.with_suffix("").with_name(f"{path.stem}-thumb{ext}")
                               for ext in (".jpg", ".png")
@@ -243,13 +251,14 @@ def scan_source(db: Database, source_id: str) -> dict:
                 if "backdrop" in art:
                     db.upsert_artwork("title", tid, "backdrop", str(art["backdrop"]))
             if existing:
-                db.execute("UPDATE media_files SET size=?, mtime=?, media_kind=?, title_id=?, episode_id=?, deleted=0 WHERE id=?",
-                           (st.st_size, st.st_mtime, media_kind, tid, eid, existing["id"]))
+                db.execute("UPDATE media_files SET size=?, mtime=?, media_kind=?, title_id=?, episode_id=?, probe_json=?, deleted=0 WHERE id=?",
+                           (st.st_size, st.st_mtime, media_kind, tid, eid, probe_json, existing["id"]))
             else:
                 db.insert("media_files", {
                     "id": new_id("f"), "source_id": source_id, "rel_path": rel,
                     "size": st.st_size, "mtime": st.st_mtime,
                     "media_kind": media_kind, "title_id": tid, "episode_id": eid,
+                    "probe_json": probe_json,
                 })
             stats["indexed"] += 1
         except Exception:  # per-file isolation: log-and-continue keeps scans non-blocking

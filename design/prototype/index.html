@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <!-- Prototype note: everything below renders MOCK sample data. No server calls. -->
+  <!-- With the server running, api.js replaces the sample catalog with real data. -->
   <nav class="topnav" id="topnav" aria-label="Primary"></nav>
 
   <header class="hero" id="hero" aria-label="Featured"></header>
@@ -24,6 +24,7 @@
           <button class="detail-action" data-detail-action="play" aria-label="Play title" title="Play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.8v14.4L19 12 7 4.8Z"/></svg></button>
           <button class="detail-action" data-detail-action="watchlist" aria-label="Add to watchlist" aria-pressed="false" title="Add to watchlist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           <button class="detail-action" data-detail-action="watched" aria-label="Mark as watched" aria-pressed="false" title="Mark as watched"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg></button>
+          <button class="detail-action" data-detail-action="remove" id="detailRemoveBtn" aria-label="Remove from library (server action)" title="Remove from library (server action)" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
         </div>
       </div>
       <section class="detail-info">

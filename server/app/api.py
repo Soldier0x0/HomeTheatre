@@ -13,15 +13,20 @@ import json
 import mimetypes
 import os
 import re
+import subprocess
+import threading
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .db import Database, new_id, utcnow
+from .probe import ffmpeg_binary, probe_file
 from .scanner import scan_source
 from .security import RateLimiter, audit_details_safe, hash_secret, verify_secret
+from .subtitles import find_sidecar_subtitles, srt_to_vtt
 
 router = APIRouter(prefix="/api")
 
@@ -67,6 +72,47 @@ class PlaybackUpdate(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+class ScanJobManager:
+    """In-process background scan jobs (single home server process, per ADR-0007)."""
+
+    def __init__(self):
+        self._jobs: dict[str, dict] = {}
+        self._lock = threading.Lock()
+
+    def start(self, db: Database, source_id: str, force: bool = False) -> str:
+        job_id = new_id("job")
+        with self._lock:
+            self._jobs[job_id] = {"id": job_id, "source_id": source_id, "state": "running",
+                                  "started_at": utcnow(), "result": None}
+        thread = threading.Thread(target=self._run, args=(db, job_id, source_id, force), daemon=True)
+        thread.start()
+        return job_id
+
+    def _run(self, db: Database, job_id: str, source_id: str, force: bool) -> None:
+        try:
+            result = scan_source(db, source_id, force=force)
+            state = "done" if "error" not in result else "error"
+        except Exception as exc:  # job isolation: report, never crash the server
+            result, state = {"error": str(exc)}, "error"
+        with self._lock:
+            self._jobs[job_id]["state"] = state
+            self._jobs[job_id]["result"] = result
+            self._jobs[job_id]["finished_at"] = utcnow()
+        db.audit("source_scan", target_type="media_source", target_id=source_id,
+                 details=audit_details_safe(result or {}))
+
+    def get(self, job_id: str) -> dict | None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return dict(job) if job else None
+
+
+def _scan_manager(request: Request) -> ScanJobManager:
+    if not hasattr(request.app.state, "scan_jobs"):
+        request.app.state.scan_jobs = ScanJobManager()
+    return request.app.state.scan_jobs
+
+
 VIDEO_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm",
                ".mkv": "video/x-matroska", ".mov": "video/quicktime", ".ts": "video/mp2t"}
 
@@ -86,7 +132,7 @@ def _containment_error(path: Path, root: Path) -> bool:
 def _resolve_media_file(db: Database, file_id: str):
     """Resolve a media_files row to (abs_path, source_root, row). Raises 404."""
     row = db.one(
-        """SELECT mf.rel_path, mf.deleted, ms.root_path
+        """SELECT mf.rel_path, mf.deleted, mf.probe_json, ms.root_path
            FROM media_files mf JOIN media_sources ms ON ms.id = mf.source_id
            WHERE mf.id = ?""", (file_id,))
     if not row or row["deleted"]:
@@ -168,20 +214,26 @@ def _runtime_minutes_str(minutes: int | None) -> str | None:
 def _art_url(db: Database, owner_type: str, owner_id: str, role: str, seed: str) -> str:
     row = db.one("SELECT id, server_path FROM artwork WHERE owner_type=? AND owner_id=? AND role=?",
                  (owner_type, owner_id, role))
-    if row and Path(row["server_path"]).is_file():
-        return f"/api/art/{row['id']}"
+    if row:
+        sp = row["server_path"]
+        if sp.startswith(("http://", "https://")):
+            return sp  # remote provider URL (loaded directly by the client, opt-in only)
+        if Path(sp).is_file():
+            return f"/api/art/{row['id']}"
     return _placeholder(seed, wide=(role == "backdrop"))
 
 
 def _shaped_movie(db: Database, t, playback: dict | None) -> dict:
     genres = json.loads(t["genres"] or "[]")
     file_row = db.one(
-        """SELECT mf.id, mf.rel_path FROM media_files mf
+        """SELECT mf.id, mf.rel_path, mf.probe_json FROM media_files mf
            WHERE mf.title_id=? AND mf.media_kind='movie' AND mf.deleted=0
            ORDER BY mf.rel_path LIMIT 1""", (t["id"],))
+    probe = json.loads(file_row["probe_json"]) if file_row and file_row["probe_json"] else None
+    runtime = (int(round(probe["duration_sec"] / 60)) if probe and probe.get("duration_sec") else None)
     item = {
         "id": t["id"], "title": t["name"], "type": "Movie", "year": t["year"],
-        "genres": genres, "runtime": _runtime_minutes_str(None),
+        "genres": genres, "runtime": _runtime_minutes_str(runtime),
         "rating": t["rating"], "imdbRating": t["imdb_rating"], "tmdbId": t["tmdb_id"],
         "desc": t["synopsis"] or "",
         "art": _art_url(db, "title", t["id"], "poster", t["id"]),
@@ -193,6 +245,11 @@ def _shaped_movie(db: Database, t, playback: dict | None) -> dict:
     if file_row:
         item["stream"] = f"/api/stream/{file_row['id']}"
         item["fileName"] = file_row["rel_path"]
+        item["compatibility"] = ("direct" if probe and probe.get("browser_compatible")
+                                 else "transcode" if probe else "unknown")
+        item["fileCount"] = db.one(
+            "SELECT COUNT(*) c FROM media_files WHERE title_id=? AND media_kind='movie' AND deleted=0",
+            (t["id"],))["c"]  # >1 means the same movie title exists in several files/sources
     if playback and playback.get("duration_sec") and playback["duration_sec"] > 0:
         frac = min(1.0, (playback.get("position_sec") or 0) / playback["duration_sec"])
         item["progress"] = round(frac, 4)
@@ -216,7 +273,7 @@ def _shaped_series(db: Database, t, playback: dict | None) -> dict:
         episode_count += len(ep_rows)
         episodes = []
         for e in ep_rows:
-            frow = db.one("""SELECT mf.id FROM media_files mf
+            frow = db.one("""SELECT mf.id, mf.probe_json FROM media_files mf
                              WHERE mf.episode_id=? AND mf.deleted=0
                              ORDER BY mf.rel_path LIMIT 1""", (e["id"],))
             ep = {
@@ -227,6 +284,9 @@ def _shaped_series(db: Database, t, playback: dict | None) -> dict:
             }
             if frow:
                 ep["stream"] = f"/api/stream/{frow['id']}"
+                fprobe = json.loads(frow["probe_json"]) if frow["probe_json"] else None
+                ep["compatibility"] = ("direct" if fprobe and fprobe.get("browser_compatible")
+                                       else "transcode" if fprobe else "unknown")
             episodes.append(ep)
         seasons.append({"number": s["number"], "year": s["year"],
                         "episodeCount": len(episodes), "episodes": episodes})
@@ -265,11 +325,13 @@ def shaped_catalog(db: Database, profile_id: str | None) -> dict:
         else:
             item = _shaped_series(db, t, playback.get(t["id"]))
             series.append(item)
-    # Hero: three most recent movies/series that have real backdrops (not placeholders).
-    def has_backdrop(item):
+    # Hero: real artwork first, then gradient placeholders, so a fresh library still has a hero.
+    def has_real_backdrop(item):
         return not item["backdrop"].startswith("data:")
-    candidates = [x for x in films if has_backdrop(x) and x["backdrop"]] + \
-                 [x for x in series if has_backdrop(x) and x["backdrop"]]
+    candidates = [x for x in films if has_real_backdrop(x)] + \
+                 [x for x in series if has_real_backdrop(x)] + \
+                 [x for x in films if not has_real_backdrop(x)] + \
+                 [x for x in series if not has_real_backdrop(x)]
     for item in candidates[:3]:
         hero.append({k: item[k] for k in (
             "id", "title", "type", "year", "genres", "runtime", "rating", "desc",
@@ -338,14 +400,49 @@ def add_source(body: SourceCreate, request: Request):
 
 
 @router.post("/sources/{source_id}/scan")
-def scan(source_id: str, request: Request):
-    db: Database = request.app.state.db
+def scan(source_id: str, request: Request, wait: bool = False, force: bool = False):
+    """Start a scan. Default: returns a job id immediately (progress via /api/scan-jobs/{id}).
+    wait=true runs synchronously and returns the stats (used by tests and small libraries).
+    force=true re-examines unchanged files, re-probing runtime/codecs."""
+    db = request.app.state.db
     if not db.one("SELECT id FROM media_sources WHERE id=?", (source_id,)):
         raise HTTPException(status_code=404, detail="Source not found.")
-    result = scan_source(db, source_id)
-    db.audit("source_scan", target_type="media_source", target_id=source_id,
-             details=audit_details_safe(result))
-    return result
+    if wait:
+        result = scan_source(db, source_id, force=force)
+        db.audit("source_scan", target_type="media_source", target_id=source_id,
+                 details=audit_details_safe(result))
+        return result
+    job_id = _scan_manager(request).start(db, source_id, force=force)
+    return {"job_id": job_id, "state": "running"}
+
+
+@router.get("/scan-jobs/{job_id}")
+def scan_job(job_id: str, request: Request):
+    job = _scan_manager(request).get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Scan job not found.")
+    return job
+
+
+@router.get("/sources/{source_id}/files")
+def list_source_files(source_id: str, request: Request):
+    db = request.app.state.db
+    if not db.one("SELECT id FROM media_sources WHERE id=?", (source_id,)):
+        raise HTTPException(status_code=404, detail="Source not found.")
+    rows = db.query("""SELECT mf.id, mf.rel_path, mf.size, mf.media_kind, mf.deleted, mf.probe_json,
+                              ti.name AS title_name
+                       FROM media_files mf LEFT JOIN titles ti ON ti.id = mf.title_id
+                       WHERE mf.source_id=? ORDER BY mf.rel_path""", (source_id,))
+    files = []
+    for r in rows:
+        probe = json.loads(r["probe_json"]) if r["probe_json"] else None
+        files.append({
+            "id": r["id"], "path": r["rel_path"], "size": r["size"],
+            "kind": r["media_kind"], "title": r["title_name"], "deleted": bool(r["deleted"]),
+            "mode": ("direct" if probe and probe.get("browser_compatible")
+                     else "transcode" if probe else "unknown"),
+        })
+    return {"files": files}
 
 
 @router.delete("/sources/{source_id}")
@@ -420,6 +517,19 @@ def remove_from_library(title_id: str, request: Request):
              details={"indexed_files_dropped": files, "media_files_on_disk": "untouched"})
     return {"removed": True, "indexed_files_dropped": files,
             "note": "Catalog entry removed. Media files on disk were not deleted."}
+
+
+@router.post("/catalog/{title_id}/refresh")
+def refresh_title(title_id: str, request: Request, provider: str = "tmdb"):
+    """Optional metadata provider refresh. Disabled unless HOME_THEATER_TMDB_KEY is set."""
+    from . import providers
+    _title_or_404(request.app.state.db, title_id)
+    if provider != "tmdb":
+        raise HTTPException(status_code=422, detail="Unknown provider. Only 'tmdb' is implemented.")
+    if not providers.enabled():
+        return {"ok": False, "enabled": False,
+                "message": "Metadata provider is disabled. Set HOME_THEATER_TMDB_KEY on the server to enable it."}
+    return providers.enrich(request.app.state.db, title_id)
 
 
 # ---------------------------------------------------------------------------
@@ -498,10 +608,110 @@ def put_playback(profile_id: str, title_id: str, body: PlaybackUpdate, request: 
 # Streaming + artwork
 # ---------------------------------------------------------------------------
 
+def _transcode_response(path: Path, start_sec: float):
+    """On-demand transcode to fragmented MP4 (H.264/AAC) streamed from ffmpeg stdout (ADR-0005)."""
+    from fastapi.responses import StreamingResponse
+    ffmpeg = ffmpeg_binary()
+    if not ffmpeg:
+        raise HTTPException(
+            status_code=503,
+            detail="This file needs transcoding but no ffmpeg binary is available on the server.",
+            headers={"X-Home-Theater-Mode": "unavailable"})
+    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error"]
+    if start_sec > 0:
+        cmd += ["-ss", f"{start_sec:.3f}"]
+    cmd += ["-i", str(path),
+            "-map", "0:v:0", "-map", "0:a:0?",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "160k",
+            "-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "pipe:1"]
+
+    def chunks():
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        try:
+            assert proc.stdout is not None
+            while True:
+                block = proc.stdout.read(1 << 18)
+                if not block:
+                    break
+                yield block
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+    return StreamingResponse(chunks(), media_type="video/mp4",
+                             headers={"X-Home-Theater-Mode": "transcoded",
+                                      "X-Home-Theater-Start": str(start_sec)})
+
+
 @router.get("/stream/{file_id}")
-def stream(file_id: str, request: Request, range_header: str | None = Header(default=None, alias="Range")):
-    path, root, _row = _resolve_media_file(request.app.state.db, file_id)
+def stream(file_id: str, request: Request,
+           range_header: str | None = Header(default=None, alias="Range"),
+           transcode: str = "auto", start: float = 0.0):
+    """Direct HTTP-range streaming when the file is browser-compatible (per its stored probe);
+    on-demand transcode otherwise. transcode=direct|auto|force. Honest mode header on every reply."""
+    path, root, row = _resolve_media_file(request.app.state.db, file_id)
+    probe = json.loads(row["probe_json"]) if row["probe_json"] else None
+    # auto: transcode only when a probe proves the file is incompatible.
+    # An unprobed file direct-plays (unknown ≠ incompatible); force always transcodes.
+    needs_transcode = (transcode == "force"
+                       or (transcode != "direct"
+                           and probe is not None and not probe.get("browser_compatible")))
+    if needs_transcode and start >= 0:
+        try:
+            return _transcode_response(path, max(0.0, start))
+        except HTTPException as exc:
+            if transcode == "force" or exc.status_code != 503:
+                raise
+            # auto + no ffmpeg: fall through to direct play with an honest mode header
     return _serve_local_file(path, root, range_header)
+
+
+@router.get("/files/{file_id}/capability")
+def file_capability(file_id: str, request: Request):
+    """Truthful per-file playback capability (no invented formats)."""
+    path, root, row = _resolve_media_file(request.app.state.db, file_id)
+    probe = json.loads(row["probe_json"]) if row["probe_json"] else None
+    if probe is None:
+        return {"probed": False, "mode": "unknown",
+                "detail": "No ffprobe result for this file yet (run a rescan with force=true)."}
+    mode = "direct" if probe["browser_compatible"] else "transcode"
+    transcoder_ready = ffmpeg_binary() is not None
+    return {"probed": True, "mode": mode, "transcoder_ready": transcoder_ready, **probe}
+
+
+# ---------------------------------------------------------------------------
+# Subtitles (local sidecars only — no external provider, per ADR-0006)
+# ---------------------------------------------------------------------------
+
+@router.get("/subtitles/{file_id}")
+def list_subtitles(file_id: str, request: Request):
+    path, root, _row = _resolve_media_file(request.app.state.db, file_id)
+    subs = find_sidecar_subtitles(path)
+    for s in subs:
+        s.pop("path")  # never expose filesystem paths to clients
+    return {"subtitles": subs}
+
+
+@router.get("/subtitles/{file_id}/{index}/track")
+def subtitle_track(file_id: str, index: int, request: Request):
+    path, root, _row = _resolve_media_file(request.app.state.db, file_id)
+    subs = find_sidecar_subtitles(path)
+    if index < 0 or index >= len(subs):
+        raise HTTPException(status_code=404, detail="No such subtitle sidecar.")
+    srt = Path(subs[index]["path"])
+    if _containment_error(srt, root):
+        raise HTTPException(status_code=404, detail="Subtitle path escapes its configured source root.")
+    try:
+        text = srt.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raise HTTPException(status_code=404, detail="Subtitle file is missing.")
+    from fastapi.responses import Response
+    return Response(srt_to_vtt(text), media_type="text/vtt",
+                    headers={"X-Home-Theater-Subtitle-Lang": subs[index]["lang"]})
 
 
 @router.get("/art/{artwork_id}")
@@ -520,6 +730,11 @@ def art(artwork_id: str, request: Request, range_header: str | None = Header(def
 # ---------------------------------------------------------------------------
 # Admin boundary
 # ---------------------------------------------------------------------------
+
+@router.get("/admin/status")
+def admin_status(request: Request):
+    return {"configured": bool(request.app.state.db.one("SELECT id FROM admin_auth WHERE id=1"))}
+
 
 @router.post("/admin/setup")
 def admin_setup(body: AdminPassword, request: Request):

@@ -93,7 +93,7 @@ def add_source(client, name="House Library"):
 
 def scan(client):
     sid = add_source(client)
-    r = client.post(f"/api/sources/{sid}/scan")
+    r = client.post(f"/api/sources/{sid}/scan?wait=true")
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -168,16 +168,35 @@ def test_shaped_catalog_contract(client):
     assert all(not f.get("isAnime") for f in shaped["films"])
     assert "SPY x FAMILY" not in {f["title"] for f in shaped["films"]}
 
-    # hero uses only real backdrops when available
-    if shaped["hero"]:
-        assert all(not h["backdrop"].startswith("data:") for h in shaped["hero"])
+    # hero exists for a non-empty library; items with real backdrops come first
+    assert shaped["hero"], "fresh library should still show a hero"
+    real = [h for h in shaped["hero"] if not h["backdrop"].startswith("data:")]
+    if real:
+        assert all(not h["backdrop"].startswith("data:") for h in shaped["hero"][:len(real)])
 
 
 def test_incremental_scan_skips_unchanged(client):
     scan(client)
     sid = client.get("/api/sources").json()["sources"][0]["id"]
-    stats = client.post(f"/api/sources/{sid}/scan").json()
+    stats = client.post(f"/api/sources/{sid}/scan?wait=true").json()
     assert stats["indexed"] == 0 and stats["skipped"] == 5
+
+
+def test_scan_jobs_endpoint(client):
+    sid = add_source(client)
+    r = client.post(f"/api/sources/{sid}/scan")  # default: background job
+    assert r.status_code == 200 and "job_id" in r.json()
+    job_id = r.json()["job_id"]
+    import time
+    job = {"state": "running"}
+    for _ in range(200):
+        job = client.get(f"/api/scan-jobs/{job_id}").json()
+        if job["state"] != "running":
+            break
+        time.sleep(0.05)
+    assert job["state"] == "done"
+    assert job["result"]["indexed"] == 5
+    assert client.get("/api/scan-jobs/missing").status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +296,112 @@ def test_remove_source_keeps_files(client):
                  and p.suffix in {".mp4", ".mkv", ".jpg", ".nfo"}]
     assert len(remaining) == 10  # nothing deleted from disk
     assert client.get("/api/catalog/shaped").json()["films"] == []
+
+
+# ---------------------------------------------------------------------------
+# Probe, capability, transcode, subtitles, provider
+# ---------------------------------------------------------------------------
+
+def _synth_video(client, rel: str, *codec_args, dur: int = 2):
+    """Create a real tiny video inside the media root using the bundled static ffmpeg."""
+    import subprocess
+    import static_ffmpeg.run as sfr
+    ffmpeg, _ = sfr.get_or_fetch_platform_executables_else_raise()
+    out = client.media_root / rel
+    out.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [ffmpeg, "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", f"testsrc=size=128x96:rate=10:duration={dur}",
+         "-f", "lavfi", "-i", f"sine=frequency=440:duration={dur}",
+         *codec_args, "-y", str(out)],
+        check=True, capture_output=True)
+    return out
+
+
+def test_probe_runtime_flows_into_catalog(client):
+    _synth_video(client, "Movies/Probed Film (2021)/Probed Film (2021).mp4",
+                 "-c:v", "libx264", "-c:a", "aac", dur=60)
+    scan(client)
+    shaped = client.get("/api/catalog/shaped").json()
+    film = next(f for f in shaped["films"] if f["title"] == "Probed Film")
+    assert film["runtime"] == "1m"          # real duration, not invented
+    assert film["compatibility"] == "direct"
+    fid = film["stream"].rsplit("/", 1)[1]
+    cap = client.get(f"/api/files/{fid}/capability").json()
+    assert cap["probed"] and cap["mode"] == "direct"
+    assert cap["video_codec"] == "h264" and cap["audio_codecs"] == ["aac"]
+    assert cap["duration_sec"] == pytest.approx(60, abs=2)
+
+
+def test_capability_transcode_for_incompatible_file(client):
+    _synth_video(client, "Movies/Old Mpeg2 (1995)/Old Mpeg2 (1995).mpg",
+                 "-c:v", "mpeg2video", "-c:a", "mp2", dur=2)
+    scan(client)
+    shaped = client.get("/api/catalog/shaped").json()
+    film = next(f for f in shaped["films"] if f["title"] == "Old Mpeg2")
+    assert film["compatibility"] == "transcode"
+    fid = film["stream"].rsplit("/", 1)[1]
+    cap = client.get(f"/api/files/{fid}/capability").json()
+    assert cap["probed"] and cap["mode"] == "transcode"
+    assert cap["transcoder_ready"] is True
+
+
+def test_transcode_stream_produces_fragmented_mp4(client):
+    _synth_video(client, "Movies/Old Mpeg2 (1995)/Old Mpeg2 (1995).mpg",
+                 "-c:v", "mpeg2video", "-c:a", "mp2", dur=2)
+    scan(client)
+    shaped = client.get("/api/catalog/shaped").json()
+    film = next(f for f in shaped["films"] if f["title"] == "Old Mpeg2")
+    r = client.get(film["stream"] + "?transcode=force")
+    assert r.status_code == 200
+    assert r.headers["x-home-theater-mode"] == "transcoded"
+    assert b"ftyp" in r.content[:64]        # valid fragmented-MP4 stream head
+
+
+def test_probe_unavailable_reports_unknown(client):
+    # the zero-byte fixture "movies" cannot be probed; catalog stays honest
+    scan(client)
+    shaped = client.get("/api/catalog/shaped").json()
+    film = next(f for f in shaped["films"] if f["title"] == "Inception")
+    assert film["compatibility"] == "unknown"
+    fid = film["stream"].rsplit("/", 1)[1]
+    cap = client.get(f"/api/files/{fid}/capability").json()
+    assert cap["probed"] is False and cap["mode"] == "unknown"
+
+
+def test_sidecar_subtitles_listing_and_vtt(client):
+    movie_dir = client.media_root / "Movies" / "Subbed Film (2020)"
+    _synth_video(client, "Movies/Subbed Film (2020)/Subbed Film (2020).mp4",
+                 "-c:v", "libx264", "-c:a", "aac", dur=2)
+    (movie_dir / "Subbed Film (2020).en.srt").write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nHello there.\n\n")
+    (movie_dir / "Subbed Film (2020).te.srt").write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nనమస్కారం.\n\n")
+    scan(client)
+    shaped = client.get("/api/catalog/shaped").json()
+    film = next(f for f in shaped["films"] if f["title"] == "Subbed Film")
+    fid = film["stream"].rsplit("/", 1)[1]
+    subs = client.get(f"/api/subtitles/{fid}").json()["subtitles"]
+    assert [s["lang"] for s in subs] == ["en", "te"]
+    assert not any("path" in s for s in subs)   # filesystem paths never exposed
+    vtt = client.get(f"/api/subtitles/{fid}/0/track")
+    assert vtt.status_code == 200
+    assert vtt.headers["content-type"].startswith("text/vtt")
+    body = vtt.text
+    assert body.startswith("WEBVTT")
+    assert "00:00:01.000 --> 00:00:02.000" in body   # comma→dot conversion
+    assert "Hello there." in body
+    assert client.get(f"/api/subtitles/{fid}/9/track").status_code == 404
+
+
+def test_provider_disabled_without_key(client):
+    scan(client)
+    shaped = client.get("/api/catalog/shaped").json()
+    tid = shaped["films"][0]["id"]
+    r = client.post(f"/api/catalog/{tid}/refresh")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False and body["enabled"] is False
 
 
 # ---------------------------------------------------------------------------

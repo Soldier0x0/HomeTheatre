@@ -1,0 +1,2 @@
+-r playwright>=1.40   # only needed for scripts/browser_e2e.py (headless-browser checks)
+-r requirements.txt

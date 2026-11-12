@@ -10,7 +10,12 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+_MIGRATIONS = {
+    # column additions applied to databases created at an older user_version
+    2: ["ALTER TABLE media_files ADD COLUMN probe_json TEXT"],
+}
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_sources (
@@ -69,6 +74,7 @@ CREATE TABLE IF NOT EXISTS media_files (
   media_kind TEXT NOT NULL,                    -- movie | episode
   title_id TEXT REFERENCES titles(id) ON DELETE CASCADE,
   episode_id TEXT REFERENCES episodes(id) ON DELETE SET NULL,
+  probe_json TEXT,                             -- ffprobe result (runtime, codecs, capability)
   deleted INTEGER NOT NULL DEFAULT 0,
   UNIQUE (source_id, rel_path)
 );
@@ -142,8 +148,19 @@ class Database:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.executescript(_SCHEMA)
+            self._migrate()
             self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        current = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        for version, statements in _MIGRATIONS.items():
+            if current < version:
+                for stmt in statements:
+                    try:
+                        self._conn.execute(stmt)
+                    except sqlite3.OperationalError:
+                        pass  # column already exists (fresh schema includes it)
 
     def execute(self, sql: str, params: tuple | dict = ()) -> sqlite3.Cursor:
         with self._lock:
