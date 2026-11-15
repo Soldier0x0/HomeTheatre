@@ -26,9 +26,38 @@ _episode_stem = re.compile(
     r"^(?P<show>.+?)[ _.-]+[Ss]\d{1,2}[Ee]\d{1,3}(?:[ _.-]+(?P<title>.*))?$"
 )
 
+# Release-tag noise: quality/codec/source/site tokens that carry no title information.
+_BRACKETED = re.compile(r"\[[^\]]*\]|\([^)]*\)")
+_RELEASE_NOISE = re.compile(
+    r"(?i)\b(?:1080|720|2160|480|360)p\b"
+    r"|\b(?:x|h)\.?26[45]\b|\bhevc(?:10)?\b|\bavc\b|\bxvid\b|\bdivx\b"
+    r"|\baac(?:[ .]?[57]\.1)?\b|\b(?:ac3|eac3|ddp?|[57]\.1|atmos|truehd|dts(?:-hd)?(?:[ .]?ma)?)\b"
+    r"|\b(?:blu-?ray|bdrip|brrip|web-?dl|webrip|web|hdtv|dvd|dvdrip|hd-dvd)\b"
+    r"|\b(?:hdr10?|dv|dolby(?:[ .]?vision)?|10bit|8bit|proper|repack|extended|remastered|unrated|aac|mp3|flac|aac2\.0)\b"
+    r"|\b(?:rarbg|eztv|ettv|yts|yify|amzn|nf|netflix|hmax|dsnp|atvp|pmtp|tgnf|shan)\b"
+)
+
 
 def _clean(name: str) -> str:
     return re.sub(r"[_.]+", " ", name).strip(" .-_") or name
+
+
+def _strip_release_noise(text: str | None) -> str | None:
+    """Remove bracketed groups and release-tag tokens; None when nothing human remains."""
+    if not text:
+        return None
+    s = _BRACKETED.sub(" ", text)
+    s = _RELEASE_NOISE.sub(" ", s)
+    s = re.sub(r"[._]+", " ", s)
+    s = re.sub(r"\s*-\s*$", " ", s)
+    s = re.sub(r"\s{2,}", " ", s).strip(" .-_ ")
+    if len(s) < 3 or not re.search(r"[A-Za-z0-9]", s):
+        return None
+    return s
+
+
+def _is_release_noise(text: str | None) -> bool:
+    return text is not None and _strip_release_noise(text) is None
 
 
 def parse_episode(rel_path: str) -> dict | None:
@@ -47,7 +76,7 @@ def parse_episode(rel_path: str) -> dict | None:
             return None
         season = int(re.search(r"(\d+)", season_dir).group(1))
         episode = int(num.group(1))
-        name = _clean(re.sub(r"^\d{1,3}[ ._-]+", "", stem)) or None
+        name = _strip_release_noise(re.sub(r"^\d{1,3}[ ._-]+", "", stem))
         dirs = [p for p in parts[:-1] if not re.fullmatch(r"(?i)season[ _]?\d{1,2}", p)]
         if dirs:
             ym = _year.search(dirs[-1])
@@ -84,7 +113,7 @@ def parse_episode(rel_path: str) -> dict | None:
                 year = int(ym.group(1) or ym.group(2))
     title = em.group("title") if em else None
     return {"show": show, "year": year, "season": season, "episode": episode,
-            "name": _clean(title) if title else None}
+            "name": _strip_release_noise(title)}
 
 
 def parse_movie(rel_path: str) -> dict:
@@ -95,6 +124,8 @@ def parse_movie(rel_path: str) -> dict:
         year = int(ym.group(1) or ym.group(2))
         stem = stem[:ym.start()].strip(" .-_")
     name = _clean(stem)
+    # release-tag cleanup: prefer the human part; keep the raw cleaned name as fallback
+    name = _strip_release_noise(name) or name
     return {"name": name, "year": year}
 
 
@@ -182,9 +213,20 @@ def ensure_series(db: Database, show: str, year: int | None, nfo: dict | None,
 
 def ensure_episode(db: Database, season_id: str, number: int, name: str | None,
                    synopsis: str | None, nfo_episode: dict | None) -> str:
-    row = db.one("SELECT id FROM episodes WHERE season_id=? AND number=?", (season_id, number))
+    row = db.one("SELECT id, name FROM episodes WHERE season_id=? AND number=?", (season_id, number))
     if row:
-        return row["id"]
+        eid = row["id"]
+        # refresh metadata on rescan: a provided name wins; a stored release-noise
+        # name is dropped when nothing better was parsed (UI falls back to "Episode N")
+        updates = {}
+        if name and name != row["name"]:
+            updates["name"] = name
+        elif name is None and _is_release_noise(row["name"]):
+            updates["name"] = None
+        if updates:
+            db.execute(f"UPDATE episodes SET {', '.join(f'{k}=?' for k in updates)} WHERE id=?",
+                       (*updates.values(), eid))
+        return eid
     eid = new_id("e")
     db.insert("episodes", {
         "id": eid, "season_id": season_id, "number": number,

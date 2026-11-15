@@ -143,6 +143,16 @@ no SMB/NFS exposed, no credentials assumed). The server belongs where the media 
 - 32 pytest + 19 browser e2e + build-out browser checks (search filtering, prefs saved through
   the form, player honoring prefs with playback advancing).
 
+## Release-noise parsing (2026-11-15, latest)
+
+- Scanner strips release tags (1080p/720p, x264/x265/HEVC, BluRay/WEB-DL/WEBRip, RARBG/eztv/YTS,
+  AAC/DTS/DDP, HDR, group brackets) from parsed episode/movie names. Nothing human left ->
+  episode falls back to "Episode N" (movie keeps the cleaned name).
+- `ensure_episode` now refreshes names on rescan: a newly parsed name wins, and a stored
+  release-noise name is dropped on force rescan — no manual DB surgery needed for libraries
+  first scanned by the older parser (just force-rescan once).
+- 34 pytest passing.
+
 ## Latest visual refinement
 
 ## Latest visual refinement

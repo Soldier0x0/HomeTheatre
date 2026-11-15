@@ -91,9 +91,9 @@ def add_source(client, name="House Library"):
     return r.json()["id"]
 
 
-def scan(client):
+def scan(client, force: bool = False):
     sid = add_source(client)
-    r = client.post(f"/api/sources/{sid}/scan?wait=true")
+    r = client.post(f"/api/sources/{sid}/scan?wait=true&force={'true' if force else 'false'}")
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -109,6 +109,38 @@ def test_parse_episode_variants():
     assert parse_episode("TV/Show (2020)/Season 2/Episode 7.mp4")["season"] == 2
     assert parse_episode("TV/Show (2020)/Season 2/Episode 7.mp4")["episode"] == 7
     assert parse_episode("Movies/Some Movie (2019)/file.mp4") is None
+
+
+def test_parse_release_noise_names():
+    # real-world release-named episodes: no human title -> None ("Episode N" fallback)
+    ep = parse_episode("Series/Resident.Alien.S01.1080p.BluRay.x265-RARBG[eztv.re]/"
+                       "Resident.Alien.S01E01.1080p.BluRay.x265-RARBG[eztv.re].mp4")
+    assert ep["show"] == "Resident Alien" and ep["season"] == 1 and ep["episode"] == 1
+    assert ep["name"] is None
+    # a real title alongside noise tokens survives
+    ep2 = parse_episode("TV/Show.S01.1080p.WEB-DL/Show.S01E03.The.Deep.End.1080p.x265.mp4")
+    assert ep2["name"] == "The Deep End"
+    # movie: year cut then noise strip
+    mv = parse_movie("Movies/Some.Movie.2020.1080p.BluRay.x264-RARBG[eztv.re].mkv")
+    assert mv == {"name": "Some Movie", "year": 2020}
+
+
+def test_rescan_replaces_release_noise_episode_names(client):
+    # the deployed server's state: an old parser stored junk episode names in the DB.
+    # Simulate it, then verify a force rescan with the fixed parser cleans it up.
+    junk_dir = client.media_root / "TV" / "Noise Show S01 1080p WEB-DL"
+    make_video(junk_dir / "Noise.Show.S01E01.1080p.WEB-DL.x264-RARBG[eztv.re].mp4")
+    from server.app.scanner import _is_release_noise
+    assert _is_release_noise("1080p BluRay x265 RARBG eztv re")
+    scan(client)
+    # force the junk state old deployments carry
+    client.db.execute("UPDATE episodes SET name='1080p WEB-DL x264 RARBG eztv re'")
+    scan(client, force=True)  # rescan with the noise-stripping parser
+    shaped = client.get("/api/catalog/shaped").json()
+    show = next(s for s in shaped["series"] if s["title"] == "Noise Show")
+    eps = [e for season in show["seasons"] for e in season["episodes"]]
+    assert eps and not any(e["title"].startswith("1080p") for e in eps)
+    assert any(e["title"] == "Episode 1" for e in eps)
 
 
 def test_parse_movie_variants():
