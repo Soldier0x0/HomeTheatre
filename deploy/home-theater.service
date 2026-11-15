@@ -13,8 +13,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# ADJUST: user that owns the media files
-User=%i
+# User that owns the media files. Running as root works on a single-admin home
+# server; to harden later, create a dedicated user and change this line plus
+# ReadWritePaths below.
+User=root
 # ADJUST: where this repo lives on the media server
 WorkingDirectory=/opt/HomeTheatre
 ExecStart=/opt/HomeTheatre/.venv/bin/python -m server.app.main
