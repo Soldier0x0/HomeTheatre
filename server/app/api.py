@@ -412,7 +412,9 @@ def _require_admin(db: Database, request: Request, admin_password: str) -> None:
 
 @router.get("/health")
 def health():
-    return {"ok": True, "service": "home-theater", "version": "0.1.0-slice"}
+    from . import providers
+    return {"ok": True, "service": "home-theater", "version": "0.1.0-slice",
+            "metadata_provider": "tmdb" if providers.enabled() else None}
 
 
 # ---------------------------------------------------------------------------
@@ -627,6 +629,29 @@ def refresh_title(title_id: str, request: Request, provider: str = "tmdb"):
         return {"ok": False, "enabled": False,
                 "message": "Metadata provider is disabled. Set HOME_THEATER_TMDB_KEY on the server to enable it."}
     return providers.enrich(request.app.state.db, title_id)
+
+
+@router.post("/catalog/enrich-all")
+def enrich_all(request: Request):
+    """Run the metadata provider over every title (best-effort per title).
+
+    Only works when HOME_THEATER_TMDB_KEY is set. Slower per-title endpoint stays
+    available for targeted refreshes. Honest summary: counts, not guarantees.
+    """
+    from . import providers
+    db = request.app.state.db
+    if not providers.enabled():
+        return {"ok": False, "enabled": False,
+                "message": "Metadata provider is disabled. Set HOME_THEATER_TMDB_KEY on the server to enable it."}
+    rows = db.query("SELECT id, name FROM titles ORDER BY name COLLATE NOCASE")
+    enriched, missed = [], []
+    for r in rows:
+        result = providers.enrich(db, r["id"])
+        (enriched if result.get("ok") else missed).append(
+            {"title": r["name"], "reason": result.get("reason")})
+    db.audit("provider_enrich_all", target_type="library",
+             details=audit_details_safe({"enriched": len(enriched), "missed": len(missed)}))
+    return {"ok": True, "enriched": enriched, "missed": missed}
 
 
 # ---------------------------------------------------------------------------

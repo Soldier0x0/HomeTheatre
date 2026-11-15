@@ -30,7 +30,9 @@
     try {
       const health = await fetch("/api/health", { cache: "no-store" });
       if (!health.ok) return false;
+      const h = await health.json();
       window.HAS_SERVER = true;
+      window.HOME_PROVIDER = Boolean(h.metadata_provider); // opt-in TMDb, surfaced in Settings
       await syncProfile();
       const profile = window.HOME_PROFILE_ID();
       const q = profile ? `?profile=${encodeURIComponent(profile)}` : "";

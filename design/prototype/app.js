@@ -104,14 +104,17 @@
   }
 
   function heroSlideHTML(item, i) {
+    // meta line pieces are filtered so null/empty fields simply don't render (honest degradation)
+    const heroMeta = [item.genres.slice(0, 2).join(" · "), item.runtime, item.rating]
+      .filter(Boolean).join(` <span class="hero-divider">|</span> `);
     return `
       <div class="hero-slide ${i === 0 ? "active" : ""}" data-i="${i}">
         <div class="hero-art" aria-hidden="true"><img src="${item.backdrop || item.art}" alt="" fetchpriority="${i === 0 ? "high" : "low"}"></div>
         <div class="hero-scrim"></div>
         <div class="hero-content">
-          <div class="eyebrow">FEATURED FILM <span aria-hidden="true">|</span> ${item.year}</div>
+          <div class="eyebrow">FEATURED FILM <span aria-hidden="true">|</span> ${item.year || ""}</div>
           <h1 class="hero-title">${item.title}</h1>
-          <div class="hero-type">${item.genres.slice(0, 2).join(" · ")} <span class="hero-divider">|</span> ${item.runtime} <span class="hero-divider">|</span> <span class="chip rating">${item.rating}</span></div>
+          ${heroMeta ? `<div class="hero-type">${heroMeta}</div>` : ""}
           <p class="hero-desc">${item.desc}</p>
           <div class="meta-chips">${(item.caps || []).map(c => `<span class="chip">${c}</span>`).join("")}</div>
           <div class="hero-actions" style="margin-top:22px">
@@ -128,11 +131,11 @@
     const artworkHasTitle = displayKind === "poster" && Boolean(item.artTitle);
     const rank = kind === "rank" ? `<span class="rank">${idx + 1}</span>` : "";
     const cardSub = item.seasons
-      ? `${item.year} | ${item.seasonCount} seasons | ${item.episodeCount} episodes`
-      : `${item.year} | ${item.genres[0]} | IMDb ${item.imdbRating?.toFixed(1) || "n/a"}`;
-    const cardMetaSecondary = item.seasons
-      ? `${item.runtime} | ${item.rating}`
-      : `${item.runtime} | ${item.rating} | IMDb ${item.imdbRating?.toFixed(1) || "n/a"}`;
+      ? [item.year, `${item.seasonCount} season${item.seasonCount === 1 ? "" : "s"}`,
+         `${item.episodeCount} episode${item.episodeCount === 1 ? "" : "s"}`].filter(Boolean).join(" | ")
+      : [item.year, item.genres[0], item.imdbRating ? `IMDb ${item.imdbRating.toFixed(1)}` : ""]
+          .filter(Boolean).join(" | ");
+    const cardMetaSecondary = [item.runtime, item.rating].filter(Boolean).join(" | ");
     const accessibleLabel = [item.title, item.year, ...item.genres, item.runtime, item.rating,
       item.imdbRating ? `IMDb ${item.imdbRating.toFixed(1)}` : ""].filter(Boolean).join(", ");
     const progress = item.progress != null && !state.watchedIds.has(item.id)
@@ -144,7 +147,7 @@
           <img class="card-artwork" src="${artwork}" alt="" loading="lazy" decoding="async">
           <div class="card-details" aria-hidden="true">
             ${artworkHasTitle ? "" : `<div class="card-detail-title">${item.title}</div>`}
-            <div class="card-extra-meta"><span class="card-meta-primary">${item.year} <i>|</i> ${item.genres.join(" | ")}</span><span class="card-meta-secondary">${cardMetaSecondary}</span></div>
+            <div class="card-extra-meta"><span class="card-meta-primary">${[item.year, item.genres.join(" | ")].filter(Boolean).join(" <i>|</i> ")}</span><span class="card-meta-secondary">${cardMetaSecondary}</span></div>
             <p>${item.desc}</p>
           </div>
           ${progress}
@@ -423,6 +426,7 @@
             </section>
             <section class="settings-section" id="artwork"><div class="settings-section-title"><div><p class="catalog-kicker">TITLE INFORMATION</p><h2>Metadata and artwork</h2><p>Automatic matching can fill gaps, with manual corrections when a title is missing or misidentified.</p></div></div>
               <label class="settings-select-row"><span><strong>Artwork priority</strong><small>Choose which sources the server should check first.</small></span><select data-pref="artworkStrategy"><option value="local-first" ${state.preferences.artworkStrategy === "local-first" ? "selected" : ""}>Local artwork and NFO first</option><option value="metadata-first" ${state.preferences.artworkStrategy === "metadata-first" ? "selected" : ""}>Metadata provider first</option><option value="manual" ${state.preferences.artworkStrategy === "manual" ? "selected" : ""}>Manual artwork only</option></select></label>
+              <div class="settings-callout" id="providerStatus"><strong>${window.HOME_PROVIDER ? "Metadata provider active (TMDb)." : "Metadata provider disabled."}</strong> ${window.HOME_PROVIDER ? `Fetch posters, backdrops, and synopses from TMDb for the whole library. <button class="settings-primary" id="enrichAllBtn" type="button">Fetch artwork for all titles</button>` : "To enable: get a free key at themoviedb.org, then set <code>HOME_THEATER_TMDB_KEY</code> in the systemd unit and restart the server. Local poster.jpg/fanart.jpg files next to your media always work without it."}</div>
               <label class="settings-toggle-row"><span><strong>Look up unmatched titles</strong><small>Use the server's metadata provider for titles without local details or artwork.</small></span><input type="checkbox" data-pref="metadataLookup" ${state.preferences.metadataLookup ? "checked" : ""}></label>
               <div class="settings-callout"><strong>Missing poster or episode still?</strong>Use local poster files or NFO metadata first, then an optional metadata provider. Keep a readable title fallback and allow a person to choose the match or add artwork. Episode stills can come from provider data or user-supplied images; optional frame extraction should run slowly in the background.</div>
             </section>
@@ -1168,6 +1172,25 @@
     if (removeSource) { removeMediaSource(removeSource.dataset.removeSource); return; }
     const scanSourceBtn = e.target.closest("[data-scan-source]");
     if (scanSourceBtn) { scanServerSource(scanSourceBtn.dataset.scanSource); return; }
+    if (e.target.closest("#enrichAllBtn")) {
+      const btn = $("#enrichAllBtn");
+      const statusEl = $("#providerStatus");
+      btn.disabled = true;
+      btn.textContent = "Fetching…";
+      apiFetch("/api/catalog/enrich-all", jsonOptions("POST", {})).then(r => {
+        if (r.ok === 200 && r.body?.ok) {
+          const n = (r.body.enriched || []).length;
+          const m = (r.body.missed || []).length;
+          if (statusEl) statusEl.innerHTML = `<strong>Done.</strong> ${n} title${n === 1 ? "" : "s"} enriched${m ? `, ${m} not matched (staying on local artwork)` : ""}. Refresh or rescan to see everything.`;
+          refreshServerData().then(() => renderView());
+        } else {
+          if (statusEl) statusEl.innerHTML = `<strong>Provider unavailable.</strong> ${escapeHTML(r.body?.message || "Could not reach the metadata provider.")}`;
+          btn.disabled = false;
+          btn.textContent = "Retry";
+        }
+      });
+      return;
+    }
     const removeServerSourceBtn = e.target.closest("[data-remove-server-source]");
     if (removeServerSourceBtn) { removeServerSource(removeServerSourceBtn.dataset.removeServerSource); return; }
     const loadFilesBtn = e.target.closest("[data-load-source-files]");
