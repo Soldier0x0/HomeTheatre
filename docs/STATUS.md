@@ -153,6 +153,17 @@ no SMB/NFS exposed, no credentials assumed). The server belongs where the media 
   first scanned by the older parser (just force-rescan once).
 - 34 pytest passing.
 
+## Artwork and metadata polish (2026-11-15, latest)
+
+- `POST /api/catalog/enrich-all` runs the (opt-in) TMDb provider over every title, best-effort,
+  with an honest enriched/missed summary. `/api/health` now reports the provider status.
+- Settings → Metadata and artwork shows the provider state: instructions when the key is
+  missing, a "Fetch artwork for all titles" button when it is set.
+- Hero and card meta lines are null-safe — a fresh library without local artwork shows clean
+  cards (gradient placeholders + titles), never "null"/"undefined" text.
+- Artwork truth: gradient placeholders render whenever no artwork exists (local sidecar
+  poster.jpg/fanart.jpg, or TMDb when the key is set). No invented artwork ever.
+
 ## Latest visual refinement
 
 ## Latest visual refinement
