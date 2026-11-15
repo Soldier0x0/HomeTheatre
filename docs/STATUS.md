@@ -110,6 +110,21 @@ All verified by tests (24 passing) and a headless-browser end-to-end suite (19 c
   formats like PGS cannot become WebVTT); the mpeg program-stream container doesn't preserve
   per-track language tags, so such files list tracks by codec without a language.
 
+## Deployment pass (2026-11-15) — auto-scan + media-server install kit
+
+Context: media is being copied onto a separate Debian box (192.168.1.50; SSH reachable from here,
+no SMB/NFS exposed, no credentials assumed). The server belongs where the media lives, so:
+
+- **Auto-scan** (`HOME_THEATER_AUTOSCAN_SEC`, ADR-0007 addendum): one dedicated daemon thread
+  incrementally rescans every source each interval; newly copied files appear without manual
+  scans; audited only when something indexed. Verified live (file dropped after source creation
+  was indexed within seconds) plus a new pytest.
+- **`deploy/` kit** for the media box: `install_debian.sh` (venv, requirements, media root,
+  smoke check, prints exact next steps), `home-theater.service` (systemd unit with LAN bind,
+  autoscan env, systemd hardening, no credentials), `README.md` (copy → install → enable → first
+  run in the browser, honest security limits: no login on the UI, keep it LAN-only).
+- 28 pytest passing.
+
 ## Latest visual refinement
 
 ## Latest visual refinement
@@ -207,8 +222,8 @@ All verified by tests (24 passing) and a headless-browser end-to-end suite (19 c
 
 ## Next
 
-1. Network share mounting (SMB/NFS) behind the existing source model, replacing the demo form
-   (needs a host with mount privileges or pre-mounted shares).
+1. Deploy to the media box: copy the repo to 192.168.1.50, run `sudo ./deploy/install_debian.sh`,
+   enable the systemd unit (see `deploy/README.md`); report back any install issues.
 2. Durable scan jobs (cancel/pause, progress percentage) for large libraries.
 3. Metadata provider rollout policy: key distribution, cache budget, provider-first vs local-first
    per household preference (the Settings artwork-priority control is still local-only).

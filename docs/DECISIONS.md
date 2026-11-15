@@ -94,6 +94,12 @@ the manager is in-memory and jobs are audited on completion.
 **Rationale:** large libraries must not block the request path; single-process SQLite + threads is
 sufficient at household scale. A durable job table is a recorded next step if scans become long.
 
+**Addendum (2026-11-15):** periodic auto-scan adopted for the copy-arriving workflow —
+`HOME_THEATER_AUTOSCAN_SEC=N` starts one dedicated daemon thread that incrementally rescans every
+source each interval (unchanged files skipped cheaply; audited only when something was actually
+indexed). It never runs concurrently with itself and never crashes the loop. Manual scans via
+`POST /api/sources/{id}/scan` are unchanged; a durable job table/cancellation remains PROPOSED.
+
 ## Metadata provider policy — ADOPTED 2026-11-12
 
 TMDb enrichment exists (`POST /api/catalog/{title_id}/refresh`) but is **disabled unless

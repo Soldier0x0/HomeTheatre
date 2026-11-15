@@ -496,6 +496,30 @@ def test_capability_audio_tracks_and_switch(client):
     assert r2.headers["x-home-theater-mode"] == "transcoded"
 
 
+def test_autoscan_picks_up_new_files(client):
+    # the test app never starts an autoscan; run one directly with a fast interval
+    import time
+    from server.app.autoscan import AutoScanner
+    scanner = AutoScanner(client.db, interval_sec=0.2)
+    scanner.start()
+    try:
+        add_source(client)
+        # a file arrives after the source exists (the copy-in-progress scenario)
+        _synth_video(client, "Movies/Auto Scan Film (2024)/Auto Scan Film (2024).mp4",
+                     "-c:v", "libx264", "-c:a", "aac", dur=2)
+        shaped = {"films": []}
+        for _ in range(100):  # up to ~10 s; incremental pass is fast
+            time.sleep(0.1)
+            shaped = client.get("/api/catalog/shaped").json()
+            if any(f["title"] == "Auto Scan Film" for f in shaped["films"]):
+                break
+        assert any(f["title"] == "Auto Scan Film" for f in shaped["films"]), \
+            "auto-scan did not index the newly copied file"
+    finally:
+        scanner.stop()
+    assert scanner.last_pass is not None and scanner.last_pass["sources"] >= 1
+
+
 # ---------------------------------------------------------------------------
 # Admin boundary
 # ---------------------------------------------------------------------------

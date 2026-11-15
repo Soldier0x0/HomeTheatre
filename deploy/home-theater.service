@@ -1,0 +1,46 @@
+# Home Theater server systemd unit.
+#
+# Install:
+#   sudo cp deploy/home-theater.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now home-theater
+#
+# Adjust Environment= lines to your paths before enabling.
+
+[Unit]
+Description=Home Theater media server (household library + playback)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ADJUST: user that owns the media files
+User=%i
+# ADJUST: where this repo lives on the media server
+WorkingDirectory=/opt/HomeTheatre
+ExecStart=/opt/HomeTheatre/.venv/bin/python -m server.app.main
+Restart=on-failure
+RestartSec=5
+
+# Library database and media root
+Environment=HOME_THEATER_DB=/opt/HomeTheatre/server/data/home-theater.db
+# Bind to the LAN (the UI has no login; keep this host LAN-only)
+Environment=HOME_THEATER_HOST=0.0.0.0
+Environment=HOME_THEATER_PORT=8787
+# Rescan every minute so newly copied files appear without manual scans (0 = off)
+Environment=HOME_THEATER_AUTOSCAN_SEC=60
+# Optional: opt-in metadata provider. Leave unset to keep it disabled.
+#Environment=HOME_THEATER_TMDB_KEY=
+
+# Hardening: the server only needs its own files
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+# ADJUST: include every media root the server must read
+ReadWritePaths=/opt/HomeTheatre /srv/media
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target
