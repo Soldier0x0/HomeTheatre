@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.parse
 import urllib.request
 
@@ -27,9 +28,20 @@ def enabled() -> bool:
 
 
 def _get(url: str) -> dict:
-    req = urllib.request.Request(url, headers={"Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    """GET with a small retry loop — home internet connections drop connections
+    occasionally (observed: 'Connection reset by peer' on .50), and one dropped
+    request should not permanently miss a title. Retries: 3 attempts, short backoff."""
+    last_exc = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (OSError, ValueError) as exc:
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+    raise last_exc
 
 
 def search_movie(name: str, year: int | None) -> dict | None:

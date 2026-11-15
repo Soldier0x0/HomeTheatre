@@ -311,6 +311,27 @@ def test_search_retries_without_year_when_year_filter_kills_results(monkeypatch)
     assert len(calls) == 1
 
 
+def test_provider_get_retries_transient_failures(monkeypatch):
+    from server.app import providers
+    attempts = []
+
+    class FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"results": [1]}'
+
+    def flaky_urlopen(req, timeout=0):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise OSError("Connection reset by peer")
+        return FakeResp()
+
+    monkeypatch.setattr(providers.urllib.request, "urlopen", flaky_urlopen)
+    monkeypatch.setattr(providers.time, "sleep", lambda s: None)
+    assert providers._get("http://example/x") == {"results": [1]}
+    assert len(attempts) == 3
+
+
 def test_profile_language_preferences(client):
     r = client.post("/api/profiles", json={"name": "Lang Profile"})
     pid = r.json()["id"]
