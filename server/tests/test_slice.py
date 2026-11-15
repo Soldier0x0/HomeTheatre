@@ -286,6 +286,31 @@ def test_search_finds_titles(client):
     assert "Arcane" not in [x["title"] for x in r.json()["results"]]
 
 
+def test_search_retries_without_year_when_year_filter_kills_results(monkeypatch):
+    from server.app import providers
+    monkeypatch.setenv("HOME_THEATER_TMDB_KEY", "test-key")
+    calls = []
+
+    def fake_get(url):
+        calls.append(url)
+        if "year=2026" in url or "first_air_date_year=2026" in url:
+            return {"results": []}  # strict year filter finds nothing
+        return {"results": [{"id": 1}]}
+
+    monkeypatch.setattr(providers, "_get", fake_get)
+    assert providers.search_movie("Hantu Dalam Sel", 2026)["results"] == [{"id": 1}]
+    assert providers.search_series("Show", 2026)["results"] == [{"id": 1}]
+    assert len(calls) == 4  # two calls each: year-filtered first, then yearless
+    # network errors are not masked by a retry
+    calls.clear()
+    def bad_get(url):
+        calls.append(url)
+        raise OSError("network down")
+    monkeypatch.setattr(providers, "_get", bad_get)
+    assert providers.search_movie("X", 2020) is None
+    assert len(calls) == 1
+
+
 def test_profile_language_preferences(client):
     r = client.post("/api/profiles", json={"name": "Lang Profile"})
     pid = r.json()["id"]

@@ -33,25 +33,35 @@ def _get(url: str) -> dict:
 
 
 def search_movie(name: str, year: int | None) -> dict | None:
-    key = tmdb_key()
-    if not key:
-        return None
-    q = urllib.parse.urlencode({"query": name, "api_key": key,
-                                **({"year": year} if year else {})})
-    try:
-        return _get(f"{API_BASE}/search/movie?{q}")
-    except (OSError, ValueError):
-        return None
+    """Search TMDb. If a year filter kills the results (filenames often carry the
+    release year the provider disagrees with), retry once without the year."""
+    for y in (year, None):
+        result = _search("movie", name, y, year_key="year")
+        if result and result.get("results"):
+            return result
+        if result is None:
+            return None  # network/protocol error — don't mask it with a yearless retry
+    return result
 
 
 def search_series(name: str, year: int | None) -> dict | None:
+    for y in (year, None):
+        result = _search("tv", name, y, year_key="first_air_date_year")
+        if result and result.get("results"):
+            return result
+        if result is None:
+            return None
+    return result
+
+
+def _search(kind: str, name: str, year: int | None, year_key: str) -> dict | None:
     key = tmdb_key()
     if not key:
         return None
     q = urllib.parse.urlencode({"query": name, "api_key": key,
-                                **({"first_air_date_year": year} if year else {})})
+                                **({year_key: year} if year else {})})
     try:
-        return _get(f"{API_BASE}/search/tv?{q}")
+        return _get(f"{API_BASE}/search/{kind}?{q}")
     except (OSError, ValueError):
         return None
 
