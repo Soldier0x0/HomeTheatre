@@ -125,6 +125,24 @@ no SMB/NFS exposed, no credentials assumed). The server belongs where the media 
   run in the browser, honest security limits: no login on the UI, keep it LAN-only).
 - 28 pytest passing.
 
+## Completion pass (2026-11-15, later) — durable jobs, search, language prefs
+
+- **Durable scan jobs** (schema v4): job rows live in SQLite (`scan_jobs` table) with live
+  per-file progress (`scanned/indexed/skipped/errors`), cooperative cancellation
+  (`POST /api/scan-jobs/{id}/cancel`, honored at the next file boundary), and per-source history
+  (`GET /api/sources/{id}/jobs`). `scan_source` gained `progress`/`cancel` hooks. The UI shows
+  live "Scanning… N files" while polling. Cancelling a finished job is an honest 409.
+- **Search**: FTS5 index over title/synopsis/genres (`titles_fts`), rebuilt after scans and
+  catalog removals; `GET /api/search?q=` with quoted-query safety and a substring fallback.
+  The client's existing Search view now also matches synopses.
+- **Per-profile language preferences** (schema v4 columns): audio/subtitle language per profile,
+  set in the profile form (ISO 639-1 codes); the player matches them against track tags,
+  normalizing ISO 639-2 (ffprobe `jpn` ↔ pref `ja`), auto-switching audio via the restart
+  protocol and auto-showing the matching subtitle sidecar. `PATCH /api/profiles/{id}` is a
+  partial update; `GET /api/profiles/{id}` exposes prefs.
+- 32 pytest + 19 browser e2e + build-out browser checks (search filtering, prefs saved through
+  the form, player honoring prefs with playback advancing).
+
 ## Latest visual refinement
 
 ## Latest visual refinement
@@ -215,7 +233,7 @@ no SMB/NFS exposed, no credentials assumed). The server belongs where the media 
 - Hardware-accelerated transcoding; mpv/libmpv playback engine.
 - Media-source mounting/monitoring, network share discovery and mounting (Settings form is demo),
   multi-device indexing.
-- Durable background-job store, scan cancellation, scan pause/resume (in-process threads only).
+- Durable scan-job store (job rows, progress, cancellation) — *done 2026-11-15 (schema v4)*.
 - Production hardening: authentication beyond the admin boundary, HTTPS, multi-user concurrency
   testing at scale.
 - Android/TV/desktop native clients.
@@ -224,8 +242,6 @@ no SMB/NFS exposed, no credentials assumed). The server belongs where the media 
 
 1. Deploy to the media box: copy the repo to 192.168.1.50, run `sudo ./deploy/install_debian.sh`,
    enable the systemd unit (see `deploy/README.md`); report back any install issues.
-2. Durable scan jobs (cancel/pause, progress percentage) for large libraries.
-3. Metadata provider rollout policy: key distribution, cache budget, provider-first vs local-first
+2. Metadata provider rollout policy: key distribution, cache budget, provider-first vs local-first
    per household preference (the Settings artwork-priority control is still local-only).
-4. Per-profile default audio/subtitle language preferences (tracks are selectable now).
-5. Native clients per ROADMAP Phase F; ops hardening (HTTPS, backups) per Phase G.
+3. Native clients per ROADMAP Phase F; ops hardening (HTTPS, backups) per Phase G.

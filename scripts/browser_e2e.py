@@ -80,13 +80,13 @@ with sync_playwright() as p:
     page.goto(BASE, wait_until="networkidle")
     check("no page JS errors on home", not errors, errors[:2])
     card_titles = page.locator(".card-title").all_inner_texts()
-    check("server titles rendered", "Direct Play Demo" in card_titles, card_titles[:5])
+    check("server titles rendered", "Player Demo" in card_titles, card_titles[:5])
     check("hero present", page.locator(".hero-slide").count() >= 1)
 
     # --- detail sheet + remove-from-library button visible with server ---
-    page.locator(".card", has_text="Direct Play Demo").first.click()
+    page.locator(".card", has_text="Player Demo").first.click()
     page.wait_for_selector("#detailOverlay.open")
-    check("detail shows title", "Direct Play Demo" in page.locator("#detailTitle").inner_text())
+    check("detail shows title", "Player Demo" in page.locator("#detailTitle").inner_text())
     check("remove button visible with server", page.locator("#detailRemoveBtn").is_visible())
     feedback = page.locator("#detailFeedback")
     # watched action syncs to server (accept dialog? none needed)

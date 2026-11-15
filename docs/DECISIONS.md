@@ -98,7 +98,12 @@ sufficient at household scale. A durable job table is a recorded next step if sc
 `HOME_THEATER_AUTOSCAN_SEC=N` starts one dedicated daemon thread that incrementally rescans every
 source each interval (unchanged files skipped cheaply; audited only when something was actually
 indexed). It never runs concurrently with itself and never crashes the loop. Manual scans via
-`POST /api/sources/{id}/scan` are unchanged; a durable job table/cancellation remains PROPOSED.
+`POST /api/sources/{id}/scan` are unchanged.
+
+**Addendum (2026-11-15, later):** scan jobs are now durable (schema v4 `scan_jobs` table) with
+live per-file progress and cooperative cancellation at the next file boundary; the in-memory
+manager is gone. Job history per source is queryable. A hard server kill mid-scan leaves the row
+as `running` — the next scan of that source supersedes it (documented, honest).
 
 ## Metadata provider policy — ADOPTED 2026-11-12
 
@@ -129,6 +134,16 @@ Watchlist is **per-profile and server-side** (schema v3 `watchlist` table, keyed
 `GET/PUT/DELETE /api/watchlist/{profile_id}[/{title_id}]`; `shaped_catalog` returns `inWatchlist`
 per item when a profile is supplied; profile deletion and title removal cascade the rows. The
 browser keeps a localStorage mirror only as a fallback when no server is present.
+
+## Profile language preferences — ADOPTED 2026-11-15
+
+Each profile carries optional audio/subtitle language codes (ISO 639-1, e.g. `ja`, `te`) set in
+the profile form and stored on the profile row (schema v4). The player matches them against the
+real track language tags reported by the probe, normalizing ISO 639-2 (`jpn` ↔ `ja`). Audio
+switching uses the ADR-0005 restart protocol (server transcode at the current playhead); the
+matching sidecar subtitle auto-shows. No preference means default behavior (first track, subs off).
+The server FTS search index (`titles_fts`) covers name/synopsis/genres and is rebuilt after scans
+and catalog removals — SQLite only, consistent with ADR-0008.
 
 ## PROPOSED (not decided — do not silently adopt)
 

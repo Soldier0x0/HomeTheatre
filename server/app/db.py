@@ -10,12 +10,14 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _MIGRATIONS = {
     # column additions applied to databases created at an older user_version
     2: ["ALTER TABLE media_files ADD COLUMN probe_json TEXT"],
     # v3 adds the watchlist table via CREATE TABLE IF NOT EXISTS in _SCHEMA — no ALTER needed
+    4: ["ALTER TABLE profiles ADD COLUMN audio_lang TEXT",
+        "ALTER TABLE profiles ADD COLUMN subtitle_lang TEXT"],
 }
 
 _SCHEMA = """
@@ -95,7 +97,28 @@ CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   color TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  audio_lang TEXT,                             -- preferred audio language code (None = default)
+  subtitle_lang TEXT                           -- preferred subtitle language code (None = off)
+);
+
+CREATE TABLE IF NOT EXISTS scan_jobs (
+  id TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL,
+  state TEXT NOT NULL,                         -- running | done | error | cancelled
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  scanned INTEGER NOT NULL DEFAULT 0,          -- files examined so far (live progress)
+  indexed INTEGER NOT NULL DEFAULT 0,
+  skipped INTEGER NOT NULL DEFAULT 0,
+  errors INTEGER NOT NULL DEFAULT 0,
+  detail TEXT,                                 -- error message or final summary note
+  cancel_requested INTEGER NOT NULL DEFAULT 0
+);
+
+-- Full-text search over titles (rebuilt after scans/removals; small at household scale)
+CREATE VIRTUAL TABLE IF NOT EXISTS titles_fts USING fts5(
+  title_id UNINDEXED, name, synopsis, genres
 );
 
 CREATE TABLE IF NOT EXISTS playback_state (
@@ -179,6 +202,11 @@ class Database:
     def query(self, sql: str, params: tuple | dict = ()) -> list[sqlite3.Row]:
         with self._lock:
             return self._conn.execute(sql, params).fetchall()
+
+    def executemany(self, sql: str, seq: list[tuple]) -> None:
+        with self._lock:
+            self._conn.executemany(sql, seq)
+            self._conn.commit()
 
     def one(self, sql: str, params: tuple | dict = ()) -> sqlite3.Row | None:
         with self._lock:

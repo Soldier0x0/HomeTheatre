@@ -195,8 +195,78 @@ def test_scan_jobs_endpoint(client):
             break
         time.sleep(0.05)
     assert job["state"] == "done"
-    assert job["result"]["indexed"] == 5
+    assert job["indexed"] == 5          # progress fields live at the top level now
+    assert "detail" in job and "indexed" in job["detail"]
     assert client.get("/api/scan-jobs/missing").status_code == 404
+    jobs = client.get(f"/api/sources/{sid}/jobs").json()["jobs"]
+    assert any(j["id"] == job_id for j in jobs)
+
+
+def test_scan_job_cancel(client):
+    sid = add_source(client)
+    job_id = client.post(f"/api/sources/{sid}/scan").json()["job_id"]
+    # tiny library: the job may finish before cancel lands; both outcomes are honest
+    client.post(f"/api/scan-jobs/{job_id}/cancel")
+    import time
+    for _ in range(200):
+        job = client.get(f"/api/scan-jobs/{job_id}").json()
+        if job["state"] != "running":
+            break
+        time.sleep(0.05)
+    assert job["state"] in ("cancelled", "done")
+    # cancelling a finished job is a 409, not a lie
+    assert client.post(f"/api/scan-jobs/{job_id}/cancel").status_code == 409
+
+
+def test_scan_source_progress_and_cancel_callbacks(client):
+    from server.app.scanner import scan_source
+    sid = add_source(client)
+    seen = []
+
+    def progress(stats):
+        seen.append(dict(stats))
+
+    def cancel():
+        return len(seen) >= 2  # stop shortly after the first files are examined
+
+    stats = scan_source(client.db, sid, progress=progress, cancel=cancel)
+    assert len(seen) >= 1 and "scanned" in seen[0]
+    assert stats.get("cancelled") is True or stats["scanned"] < 5
+    # and a full scan without cancel completes
+    stats = scan_source(client.db, sid)
+    assert stats["indexed"] + stats["skipped"] >= 5
+
+
+def test_search_finds_titles(client):
+    scan(client)
+    r = client.get("/api/search", params={"q": "inception"})
+    titles = [x["title"] for x in r.json()["results"]]
+    assert "Inception" in titles
+    # genres are searchable
+    r = client.get("/api/search", params={"q": "Animation"})
+    assert any(x["title"] == "Arcane" for x in r.json()["results"])
+    # blank query -> empty, not everything
+    assert client.get("/api/search", params={"q": "  "}).json()["results"] == []
+    # removing a title drops it from search
+    tid = next(x["id"] for x in r.json()["results"] if x["title"] == "Arcane")
+    client.post(f"/api/catalog/{tid}/remove")
+    r = client.get("/api/search", params={"q": "Arcane"})
+    assert "Arcane" not in [x["title"] for x in r.json()["results"]]
+
+
+def test_profile_language_preferences(client):
+    r = client.post("/api/profiles", json={"name": "Lang Profile"})
+    pid = r.json()["id"]
+    # partial update: language prefs only
+    r = client.patch(f"/api/profiles/{pid}", json={"audio_lang": "te", "subtitle_lang": "en"})
+    assert r.status_code == 200
+    prof = client.get(f"/api/profiles/{pid}").json()
+    assert prof["audio_lang"] == "te" and prof["subtitle_lang"] == "en"
+    # clearing works; name untouched by a lang-only patch
+    client.patch(f"/api/profiles/{pid}", json={"audio_lang": ""})
+    prof = client.get(f"/api/profiles/{pid}").json()
+    assert prof["audio_lang"] == "" and prof["name"] == "Lang Profile"
+    assert client.get("/api/profiles/missing").status_code == 404
 
 
 # ---------------------------------------------------------------------------

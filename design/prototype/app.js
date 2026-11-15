@@ -12,6 +12,15 @@
   const savedPreferences = readJSON("homeTheaterPreferences", {});
   const savedSources = readJSON("homeTheaterSources", []);
   const profilePalette = { brass: "#c4aa82", blue: "#89a9c5", sage: "#8eaa98", rose: "#c58c8b", violet: "#a197bf", teal: "#80aaa5" };
+  // Language choices for profile audio/subtitle preferences (ISO 639 codes; the player
+  // matches them against track language tags reported by the server's probe data).
+  const profileLanguages = [
+    ["en", "English"], ["hi", "Hindi"], ["te", "Telugu"], ["ta", "Tamil"], ["kn", "Kannada"],
+    ["ml", "Malayalam"], ["ja", "Japanese"], ["ko", "Korean"], ["es", "Spanish"], ["fr", "French"],
+    ["de", "German"], ["zh", "Chinese"], ["ar", "Arabic"],
+  ];
+  const profileLangOptions = selected => profileLanguages.map(([code, label]) =>
+    `<option value="${code}" ${selected === code ? "selected" : ""}>${label}</option>`).join("");
   const savedProfiles = readJSON("homeTheaterProfiles", []);
   const profiles = Array.isArray(savedProfiles) ? savedProfiles.filter(profile => profile && typeof profile.name === "string" && profile.name.trim()).map(profile => ({
     id: String(profile.id || `profile-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
@@ -229,7 +238,7 @@
   function searchMatches() {
     const query = state.searchQuery.trim().toLowerCase();
     return allCatalogTitles().filter(item => !query ||
-      `${item.title} ${item.year} ${item.genres.join(" ")}`.toLowerCase().includes(query));
+      `${item.title} ${item.year} ${item.genres.join(" ")} ${item.desc || ""}`.toLowerCase().includes(query));
   }
 
   function renderSearchResults() {
@@ -372,18 +381,19 @@
       : `<div class="source-empty"><strong>No media sources added</strong><span>Add a folder on the Home Theater server or describe a network share hosted by another device.</span></div>`;
     const serverSourceRows = (state.serverSources || []).length
       ? state.serverSources.map(source => {
-          const scanning = (state.scanJobs || {})[source.id] === "running";
+          const scanStatus = (state.scanJobs || {})[source.id] || "";
+          const scanning = scanStatus === "running" || scanStatus.startsWith("Scanning…");
           const status = escapeHTML(source.status || "unknown");
           const detail = source.status_detail ? ` | ${escapeHTML(source.status_detail)}` : "";
           const lastScan = source.last_scan_at ? ` | scanned ${escapeHTML(String(source.last_scan_at).replace("T", " "))}` : "";
-          return `<article class="source-row"><span class="source-icon" aria-hidden="true">▤</span><div class="source-copy"><strong>${escapeHTML(source.name)}</strong><span>${escapeHTML(source.root_path)}</span><small>${status}${detail}${lastScan}${scanning ? " | scanning now…" : ""}</small></div><span class="profile-card-actions"><button class="profile-edit" data-scan-source="${escapeHTML(source.id)}">${scanning ? "Scanning…" : "Scan"}</button><button class="profile-remove" data-remove-server-source="${escapeHTML(source.id)}" aria-label="Remove source ${escapeHTML(source.name)}">Remove</button></span></article>`;
+          return `<article class="source-row"><span class="source-icon" aria-hidden="true">▤</span><div class="source-copy"><strong>${escapeHTML(source.name)}</strong><span>${escapeHTML(source.root_path)}</span><small>${status}${detail}${lastScan}${scanning ? ` | ${escapeHTML(scanStatus === "running" ? "scanning now…" : scanStatus)}` : ""}</small></div><span class="profile-card-actions"><button class="profile-edit" data-scan-source="${escapeHTML(source.id)}">${scanning ? "Scanning…" : "Scan"}</button><button class="profile-remove" data-remove-server-source="${escapeHTML(source.id)}" aria-label="Remove source ${escapeHTML(source.name)}">Remove</button></span></article>`;
         }).join("")
       : `<div class="source-empty"><strong>No media sources on the server</strong><span>Add a folder below. The server scans it and merges it into the household library.</span></div>`;
     const editingProfile = state.profiles.find(profile => profile.id === state.profileEditId) || null;
     const profileSection = `
       <section class="settings-section" id="profiles"><div class="settings-section-title"><div><p class="catalog-kicker">HOUSEHOLD</p><h2>Profiles</h2><p>Create a viewing identity and choose its color. Profiles have no password.</p></div><span class="source-count">${state.profiles.length} ${state.profiles.length === 1 ? "profile" : "profiles"}</span></div>
         ${state.profiles.length ? `<div class="profile-settings-grid">${state.profiles.map(profile => `<article class="profile-settings-card ${state.currentProfile?.id === profile.id ? "selected" : ""}"><button class="profile-select" data-profile-id="${escapeHTML(profile.id)}" aria-pressed="${state.currentProfile?.id === profile.id}"><span class="profile-settings-avatar" style="--profile-color:${profilePalette[profile.color]}">${initials(profile.name)}</span><span class="profile-settings-copy"><strong>${escapeHTML(profile.name)}</strong><small>${state.currentProfile?.id === profile.id ? "Currently active" : "Passwordless profile"}</small></span></button><span class="profile-card-actions"><button class="profile-edit" data-profile-edit="${escapeHTML(profile.id)}">Edit</button><button class="profile-remove" data-profile-remove="${escapeHTML(profile.id)}" aria-label="Remove ${escapeHTML(profile.name)}">Remove</button></span></article>`).join("")}</div>` : `<div class="profile-empty"><strong>No profiles created yet</strong><span>Add a name below to personalize this device.</span></div>`}
-        <form class="profile-form" id="profileForm"><div class="profile-form-heading"><strong>${editingProfile ? "Edit profile" : "Create a profile"}</strong><span>Choose a display name and avatar color.</span></div><label><span>Name</span><input name="profileName" maxlength="28" autocomplete="off" placeholder="Enter a name" value="${editingProfile ? escapeHTML(editingProfile.name) : ""}" required></label><label><span>Avatar color</span><select name="profileColor">${Object.entries(profilePalette).map(([id]) => `<option value="${id}" ${((editingProfile?.color || "brass") === id) ? "selected" : ""}>${id[0].toUpperCase()}${id.slice(1)}</option>`).join("")}</select></label><div class="profile-form-actions"><button class="settings-primary" type="submit">${editingProfile ? "Save profile" : "Add profile"}</button>${editingProfile ? '<button class="profile-cancel-edit" type="button" data-profile-cancel>Cancel</button>' : ""}</div></form>
+        <form class="profile-form" id="profileForm"><div class="profile-form-heading"><strong>${editingProfile ? "Edit profile" : "Create a profile"}</strong><span>Choose a display name, avatar color, and language preferences.</span></div><label><span>Name</span><input name="profileName" maxlength="28" autocomplete="off" placeholder="Enter a name" value="${editingProfile ? escapeHTML(editingProfile.name) : ""}" required></label><label><span>Avatar color</span><select name="profileColor">${Object.entries(profilePalette).map(([id]) => `<option value="${id}" ${((editingProfile?.color || "brass") === id) ? "selected" : ""}>${id[0].toUpperCase()}${id.slice(1)}</option>`).join("")}</select></label><label><span>Preferred audio language</span><select name="profileAudioLang"><option value="">Default (first track)</option>${profileLangOptions(editingProfile?.audio_lang)}</select></label><label><span>Preferred subtitles</span><select name="profileSubtitleLang"><option value="">Off</option>${profileLangOptions(editingProfile?.subtitle_lang)}</select></label><div class="profile-form-actions"><button class="settings-primary" type="submit">${editingProfile ? "Save profile" : "Add profile"}</button>${editingProfile ? '<button class="profile-cancel-edit" type="button" data-profile-cancel>Cancel</button>' : ""}</div></form>
         <p class="settings-callout"><strong>Security boundary</strong>Profile selection does not require a password. Deleting media remains an administrator-only server action.</p>
       </section>`;
     $("#shelves").innerHTML = `
@@ -539,7 +549,7 @@
       if (admin.ok) state.adminConfigured = Boolean(admin.body.configured);
       if (profiles.ok) {
         // Server profiles become the household list; ids are stable server ids.
-        state.profiles = (profiles.body.profiles || []).map(p => ({ id: p.id, name: p.name, color: p.color || "brass" }));
+        state.profiles = (profiles.body.profiles || []).map(p => ({ id: p.id, name: p.name, color: p.color || "brass", audio_lang: p.audio_lang || "", subtitle_lang: p.subtitle_lang || "" }));
         const currentId = JSON.parse(localStorage.getItem("homeTheaterCurrentProfile") || "null");
         state.currentProfile = state.profiles.find(p => p.id === currentId) || state.profiles[0] || null;
         if (state.currentProfile) {
@@ -562,9 +572,12 @@
       for (;;) {
         const job = await apiFetch(`/api/scan-jobs/${encodeURIComponent(jobId)}`);
         if (job.ok !== 200 || job.body.state !== "running") {
-          state.scanJobs[sourceId] = job.body.state === "done" ? "done" : "error";
+          state.scanJobs[sourceId] = job.body.state === "done" ? "done" : job.body.state;
           break;
         }
+        // live progress from the durable job row
+        state.scanJobs[sourceId] = `Scanning… ${job.body.scanned || 0} files`;
+        if (state.view === "settings") renderSettings();
         await new Promise(resolve => setTimeout(resolve, 700));
       }
     } catch {
@@ -726,14 +739,23 @@
     if (!name) return;
     if (window.HAS_SERVER) {
       // Server-backed profiles (passwordless, keyed by stable server ids).
+      const audioLang = String(data.get("profileAudioLang") || "");
+      const subtitleLang = String(data.get("profileSubtitleLang") || "");
       try {
         if (editing) {
-          await apiFetch(`/api/profiles/${encodeURIComponent(editing.id)}`, jsonOptions("PATCH", { name, color }));
+          await apiFetch(`/api/profiles/${encodeURIComponent(editing.id)}`, jsonOptions("PATCH", { name, color, audio_lang: audioLang, subtitle_lang: subtitleLang }));
         } else {
           const r = await apiFetch("/api/profiles", jsonOptions("POST", { name, color }));
           const newId = r.ok === 200 ? r.body?.id : null;
           await refreshServerData();
-          if (newId && !state.currentProfile) selectProfile(newId);
+          if (newId) {
+            // apply the language prefs to the freshly created profile
+            if (audioLang || subtitleLang) {
+              await apiFetch(`/api/profiles/${encodeURIComponent(newId)}`,
+                jsonOptions("PATCH", { audio_lang: audioLang, subtitle_lang: subtitleLang }));
+            }
+            if (!state.currentProfile) selectProfile(newId);
+          }
         }
         state.profileEditId = null;
         renderTopnav();

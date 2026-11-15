@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 
 from .db import Database, new_id, utcnow
 from .probe import ffmpeg_binary, probe_file
-from .scanner import scan_source
+from .scanner import scan_source, refresh_fts
 from .security import RateLimiter, audit_details_safe, hash_secret, verify_secret
 from .subtitles import find_sidecar_subtitles, srt_to_vtt
 
@@ -62,6 +62,15 @@ class ProfileCreate(BaseModel):
     color: str | None = Field(default=None, max_length=20)
 
 
+class ProfileUpdate(BaseModel):
+    """Partial profile update: any field provided is applied, others untouched."""
+    name: str | None = Field(default=None, min_length=1, max_length=28)
+    color: str | None = Field(default=None, max_length=20)
+    # BCP-47-ish language codes (en, te, hi, ja, ...); None/"" clears the preference.
+    audio_lang: str | None = Field(default=None, max_length=12)
+    subtitle_lang: str | None = Field(default=None, max_length=12)
+
+
 class PlaybackUpdate(BaseModel):
     position_sec: float = Field(ge=0)
     duration_sec: float | None = Field(default=None, ge=0)
@@ -73,43 +82,73 @@ class PlaybackUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ScanJobManager:
-    """In-process background scan jobs (single home server process, per ADR-0007)."""
+    """Scan jobs persisted in SQLite (schema v4) with live progress and cancellation (ADR-0007).
 
-    def __init__(self):
-        self._jobs: dict[str, dict] = {}
-        self._lock = threading.Lock()
+    One thread per job; job state is durable, so history and progress survive page reloads.
+    A hard server kill mid-scan leaves the row as 'running' — the next scan of that source
+    supersedes it.
+    """
 
-    def start(self, db: Database, source_id: str, force: bool = False) -> str:
+    def __init__(self, db: Database):
+        self.db = db
+
+    def start(self, source_id: str, force: bool = False) -> str:
         job_id = new_id("job")
-        with self._lock:
-            self._jobs[job_id] = {"id": job_id, "source_id": source_id, "state": "running",
-                                  "started_at": utcnow(), "result": None}
-        thread = threading.Thread(target=self._run, args=(db, job_id, source_id, force), daemon=True)
+        self.db.execute(
+            "INSERT INTO scan_jobs (id, source_id, state, started_at) VALUES (?,?,?,?)",
+            (job_id, source_id, "running", utcnow()))
+        thread = threading.Thread(target=self._run, args=(job_id, source_id, force), daemon=True)
         thread.start()
         return job_id
 
-    def _run(self, db: Database, job_id: str, source_id: str, force: bool) -> None:
+    def _run(self, job_id: str, source_id: str, force: bool) -> None:
+        db = self.db
+
+        def progress(stats: dict) -> None:
+            db.execute("UPDATE scan_jobs SET scanned=?, indexed=?, skipped=?, errors=? WHERE id=?",
+                       (stats.get("scanned", 0), stats.get("indexed", 0),
+                        stats.get("skipped", 0), stats.get("errors", 0), job_id))
+
+        def cancel() -> bool:
+            row = db.one("SELECT cancel_requested FROM scan_jobs WHERE id=?", (job_id,))
+            return bool(row and row["cancel_requested"])
+
         try:
-            result = scan_source(db, source_id, force=force)
-            state = "done" if "error" not in result else "error"
+            result = scan_source(db, source_id, force=force, progress=progress, cancel=cancel)
+            state = ("cancelled" if result.get("cancelled")
+                     else "done" if "error" not in result else "error")
         except Exception as exc:  # job isolation: report, never crash the server
             result, state = {"error": str(exc)}, "error"
-        with self._lock:
-            self._jobs[job_id]["state"] = state
-            self._jobs[job_id]["result"] = result
-            self._jobs[job_id]["finished_at"] = utcnow()
+        detail = result.get("error") or (f"{result.get('indexed', 0)} indexed, "
+                                         f"{result.get('skipped', 0)} skipped, "
+                                         f"{result.get('errors', 0)} errors")
+        db.execute("UPDATE scan_jobs SET state=?, finished_at=?, detail=?, indexed=?, skipped=?, errors=? WHERE id=?",
+                   (state, utcnow(), detail, result.get("indexed", 0), result.get("skipped", 0),
+                    result.get("errors", 0), job_id))
         db.audit("source_scan", target_type="media_source", target_id=source_id,
-                 details=audit_details_safe(result or {}))
+                 details=audit_details_safe({"state": state, **result}))
 
     def get(self, job_id: str) -> dict | None:
-        with self._lock:
-            job = self._jobs.get(job_id)
-            return dict(job) if job else None
+        row = self.db.one("SELECT * FROM scan_jobs WHERE id=?", (job_id,))
+        return dict(row) if row else None
+
+    def cancel(self, job_id: str) -> bool:
+        row = self.db.one("SELECT id, state FROM scan_jobs WHERE id=?", (job_id,))
+        if not row or row["state"] != "running":
+            return False
+        self.db.execute("UPDATE scan_jobs SET cancel_requested=1 WHERE id=?", (job_id,))
+        return True
+
+    def list_for_source(self, source_id: str, limit: int = 10) -> list[dict]:
+        rows = self.db.query(
+            "SELECT * FROM scan_jobs WHERE source_id=? ORDER BY started_at DESC LIMIT ?",
+            (source_id, limit))
+        return [dict(r) for r in rows]
 
 
 def _scan_manager(request: Request) -> ScanJobManager:
     if not hasattr(request.app.state, "scan_jobs"):
-        request.app.state.scan_jobs = ScanJobManager()
+        request.app.state.scan_jobs = ScanJobManager(request.app.state.db)
     return request.app.state.scan_jobs
 
 
@@ -416,7 +455,7 @@ def scan(source_id: str, request: Request, wait: bool = False, force: bool = Fal
         db.audit("source_scan", target_type="media_source", target_id=source_id,
                  details=audit_details_safe(result))
         return result
-    job_id = _scan_manager(request).start(db, source_id, force=force)
+    job_id = _scan_manager(request).start(source_id, force=force)
     return {"job_id": job_id, "state": "running"}
 
 
@@ -426,6 +465,59 @@ def scan_job(job_id: str, request: Request):
     if not job:
         raise HTTPException(status_code=404, detail="Scan job not found.")
     return job
+
+
+@router.post("/scan-jobs/{job_id}/cancel")
+def cancel_scan_job(job_id: str, request: Request):
+    """Ask a running scan to stop at the next file boundary (cooperative cancel)."""
+    if not _scan_manager(request).cancel(job_id):
+        raise HTTPException(status_code=409, detail="Job not found or not running.")
+    return {"ok": True, "state": "cancelling"}
+
+
+@router.get("/sources/{source_id}/jobs")
+def source_scan_jobs(source_id: str, request: Request):
+    db = request.app.state.db
+    if not db.one("SELECT id FROM media_sources WHERE id=?", (source_id,)):
+        raise HTTPException(status_code=404, detail="Source not found.")
+    return {"jobs": _scan_manager(request).list_for_source(source_id)}
+
+
+# ---------------------------------------------------------------------------
+# Search (FTS5 over titles; index rebuilt on scans and catalog removals)
+# ---------------------------------------------------------------------------
+
+@router.get("/search")
+def search_titles(q: str, request: Request):
+    """Full-text search across name, synopsis, and genres. Empty/blank query -> empty results."""
+    db = request.app.state.db
+    query = (q or "").strip()
+    if not query:
+        return {"results": []}
+    # Quote the whole query so user punctuation is treated as text, not FTS syntax.
+    safe = '"' + query.replace('"', '""') + '"'
+    try:
+        rows = db.query(
+            """SELECT title_id FROM titles_fts WHERE titles_fts MATCH ?
+               ORDER BY rank LIMIT 50""", (safe,))
+        ids = [r["title_id"] for r in rows]
+    except Exception:
+        ids = []
+    if not ids:  # honest fallback: substring match when FTS finds nothing (partial words)
+        like = f"%{query}%"
+        rows = db.query(
+            """SELECT id FROM titles WHERE name LIKE ? OR synopsis LIKE ? OR genres LIKE ?
+               ORDER BY name COLLATE NOCASE LIMIT 50""", (like, like, like))
+        ids = [r["id"] for r in rows]
+    results = []
+    for tid in ids:
+        t = db.one("SELECT * FROM titles WHERE id=?", (tid,))
+        if not t:
+            continue
+        item = (_shaped_movie(db, t, None) if t["kind"] == "movie"
+                else _shaped_series(db, t, None))
+        results.append(item)
+    return {"results": results}
 
 
 @router.get("/sources/{source_id}/files")
@@ -517,6 +609,7 @@ def remove_from_library(title_id: str, request: Request):
     t = _title_or_404(db, title_id)
     files = db.one("SELECT COUNT(*) c FROM media_files WHERE title_id=?", (title_id,))["c"]
     db.execute("DELETE FROM titles WHERE id=?", (title_id,))
+    refresh_fts(db)  # keep the search index in sync
     db.audit("library_remove", target_type="title", target_id=title_id, target_display=t["name"],
              details={"indexed_files_dropped": files, "media_files_on_disk": "untouched"})
     return {"removed": True, "indexed_files_dropped": files,
@@ -542,8 +635,19 @@ def refresh_title(title_id: str, request: Request, provider: str = "tmdb"):
 
 @router.get("/profiles")
 def list_profiles(request: Request):
-    rows = request.app.state.db.query("SELECT id, name, color, created_at FROM profiles ORDER BY created_at")
+    rows = request.app.state.db.query(
+        "SELECT id, name, color, audio_lang, subtitle_lang, created_at FROM profiles ORDER BY created_at")
     return {"profiles": [dict(r) for r in rows]}
+
+
+@router.get("/profiles/{profile_id}")
+def get_profile(profile_id: str, request: Request):
+    row = request.app.state.db.one(
+        "SELECT id, name, color, audio_lang, subtitle_lang, created_at FROM profiles WHERE id=?",
+        (profile_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    return dict(row)
 
 
 @router.post("/profiles")
@@ -558,11 +662,20 @@ def create_profile(body: ProfileCreate, request: Request):
 
 
 @router.patch("/profiles/{profile_id}")
-def rename_profile(profile_id: str, body: ProfileCreate, request: Request):
+def update_profile(profile_id: str, body: ProfileUpdate, request: Request):
+    """Partial update: name/color and the per-profile language preferences."""
     db = request.app.state.db
     if not db.one("SELECT id FROM profiles WHERE id=?", (profile_id,)):
         raise HTTPException(status_code=404, detail="Profile not found.")
-    db.execute("UPDATE profiles SET name=? WHERE id=?", (body.name, profile_id))
+    sets, params = [], []
+    for field in ("name", "color", "audio_lang", "subtitle_lang"):
+        value = getattr(body, field)
+        if value is not None:
+            sets.append(f"{field}=?")
+            params.append("" if field.endswith("_lang") and value == "" else value)
+    if sets:
+        params.append(profile_id)
+        db.execute(f"UPDATE profiles SET {', '.join(sets)} WHERE id=?", tuple(params))
     return {"ok": True}
 
 

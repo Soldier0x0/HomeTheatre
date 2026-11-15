@@ -195,9 +195,12 @@ def ensure_episode(db: Database, season_id: str, number: int, name: str | None,
     return eid
 
 
-def scan_source(db: Database, source_id: str, force: bool = False) -> dict:
+def scan_source(db: Database, source_id: str, force: bool = False,
+                progress=None, cancel=None) -> dict:
     """Scan one configured source. Returns a result summary; never raises for per-file errors.
-    force=True re-examines unchanged files (used for re-probe/metadata refresh)."""
+    force=True re-examines unchanged files (used for re-probe/metadata refresh).
+    progress(stats) is called after every examined file (live job progress);
+    cancel() is polled per file — when truthy the scan stops with 'cancelled': True."""
     src = db.one("SELECT * FROM media_sources WHERE id=?", (source_id,))
     if not src:
         return {"error": "source_not_found"}
@@ -212,6 +215,9 @@ def scan_source(db: Database, source_id: str, force: bool = False) -> dict:
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in VIDEO_EXTS:
             continue
+        if cancel is not None and cancel():
+            stats["cancelled"] = True
+            break
         stats["scanned"] += 1
         rel = path.relative_to(root).as_posix()
         st = path.stat()
@@ -263,8 +269,32 @@ def scan_source(db: Database, source_id: str, force: bool = False) -> dict:
             stats["indexed"] += 1
         except Exception:  # per-file isolation: log-and-continue keeps scans non-blocking
             stats["errors"] += 1
+        if progress is not None:
+            try:
+                progress(stats)
+            except Exception:
+                pass  # progress reporting must never kill a scan
 
     db.execute("UPDATE media_sources SET status='ok', status_detail=?, last_scan_at=? WHERE id=?",
                (f"{stats['indexed']} indexed, {stats['errors']} errors", utcnow(), source_id))
+    refresh_fts(db)
     stats["titles"] = db.one("SELECT COUNT(*) c FROM titles")["c"]
     return stats
+
+
+def refresh_fts(db: Database) -> None:
+    """Rebuild the title search index (FTS5). Cheap at household scale; called after scans
+    and catalog removals so the index never drifts from the titles table."""
+    db.execute("DELETE FROM titles_fts")
+    rows = db.query("SELECT id, name, synopsis, genres FROM titles")
+    fts_rows = []
+    for r in rows:
+        try:
+            genres = " ".join(json.loads(r["genres"] or "[]"))
+        except (json.JSONDecodeError, TypeError):
+            genres = ""
+        fts_rows.append((r["id"], r["name"] or "", r["synopsis"] or "", genres))
+    if fts_rows:
+        db.executemany(
+            "INSERT INTO titles_fts (title_id, name, synopsis, genres) VALUES (?,?,?,?)",
+            fts_rows)

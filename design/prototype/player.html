@@ -91,6 +91,17 @@
         return `${m}:${String(s).padStart(2, "0")}`;
       }
 
+      // Language matching: profile prefs use ISO 639-1 (ja), ffprobe tags often use
+      // ISO 639-2 (jpn). Normalize the common ones, then compare by prefix.
+      const LANG_MAP = { eng: "en", jpn: "ja", tel: "te", tam: "ta", kan: "kn", mal: "ml",
+                         hin: "hi", kor: "ko", spa: "es", fra: "fr", fre: "fr", deu: "de",
+                         ger: "de", zho: "zh", chi: "zh", ara: "ar", rus: "ru" };
+      const langCode = t => { t = (t || "").toLowerCase(); return LANG_MAP[t] || t; };
+      const langMatches = (pref, tag) => {
+        const a = langCode(pref), b = langCode(tag);
+        return Boolean(a && b) && (b.startsWith(a) || a.startsWith(b));
+      };
+
       // Audio track selection (ADR-0005 honesty rules): a stream cannot switch tracks
       // mid-flight, so every switch restarts the stream at the current playhead, and a
       // direct-play file switches by moving to server transcode (stated in the note).
@@ -132,25 +143,30 @@
         video.play().catch(() => { showOverlay(`Ready from ${fmt(pos)}.`, { start: true }); });
       }
 
-      async function loadSubtitles(fileId) {
+      async function loadSubtitles(fileId, preferredLang) {
         const bar = document.getElementById("subtitleBar");
         try {
           const r = await fetch(`/api/subtitles/${encodeURIComponent(fileId)}`, { cache: "no-store" });
           if (!r.ok) return;
           const subs = (await r.json()).subtitles || [];
           if (!subs.length) return;
+          let autoIndex = -1;
+          if (preferredLang) {
+            autoIndex = subs.findIndex(s => s.lang !== "und" && langMatches(preferredLang, s.lang));
+          }
           subs.forEach((s, i) => {
             const track = document.createElement("track");
             track.kind = "subtitles";
             track.label = s.label;
             track.srclang = s.lang === "und" ? "" : s.lang;
             track.src = `/api/subtitles/${encodeURIComponent(fileId)}/${i}/track`;
+            if (i === autoIndex) track.default = true; // profile preference: show automatically
             video.appendChild(track);
             const btn = document.createElement("button");
             btn.className = "pill";
             btn.type = "button";
             btn.textContent = `CC ${s.label}`;
-            btn.setAttribute("aria-pressed", "false");
+            btn.setAttribute("aria-pressed", String(i === autoIndex));
             btn.addEventListener("click", () => {
               const tracks = Array.from(video.textTracks);
               const active = tracks[i] && tracks[i].mode === "showing";
@@ -233,27 +249,49 @@
         }
 
         const fileId = streamUrl.split("/").pop();
+        // Per-profile language preferences (if the URL carries a profile id)
+        let profilePrefs = null;
+        const params0 = new URLSearchParams(window.location.search);
+        const profileId = params0.get("profile");
+        if (profileId) {
+          try {
+            const pr = await fetch(`/api/profiles/${encodeURIComponent(profileId)}`, { cache: "no-store" });
+            if (pr.ok) profilePrefs = await pr.json();
+          } catch { /* prefs are best-effort */ }
+        }
         try {
           const cap = await fetch(`/api/files/${encodeURIComponent(fileId)}/capability`, { cache: "no-store" });
           if (cap.ok) {
             const c = await cap.json();
             audioTracks = (c.audio_tracks || []).filter(Boolean);
-            if (c.probed && c.mode === "transcode" && c.transcoder_ready) {
+            // Preferred audio language: switch to the matching track when it is not track 0.
+            if (profilePrefs && profilePrefs.audio_lang) {
+              const match = audioTracks.find(t => langMatches(profilePrefs.audio_lang, t.lang));
+              if (match && match.index > 0) {
+                streamUrl += (streamUrl.includes("?") ? "&" : "?") +
+                  `transcode=force&audio=${match.index}`;
+                audioChoice = match.index;
+                transcodeMode = true;
+                document.getElementById("streamModeNote").textContent =
+                  `Audio ${profilePrefs.audio_lang.toUpperCase()} (profile preference) | server transcode`;
+              }
+            }
+            if (!transcodeMode && c.probed && c.mode === "transcode" && c.transcoder_ready) {
               transcodeMode = true;
               streamUrl += (streamUrl.includes("?") ? "&" : "?") + "transcode=force";
               document.getElementById("streamModeNote").textContent =
                 `Transcoding ${c.video_codec || ""} → H.264 (server)`.trim();
-            } else if (c.probed && c.mode === "transcode" && !c.transcoder_ready) {
+            } else if (!transcodeMode && c.probed && c.mode === "transcode" && !c.transcoder_ready) {
               document.getElementById("streamModeNote").textContent =
                 `This file is ${c.video_codec || "unsupported"}; no ffmpeg on the server, attempting direct play`;
-            } else if (c.probed && c.mode === "direct") {
+            } else if (!transcodeMode && c.probed && c.mode === "direct") {
               document.getElementById("streamModeNote").textContent =
                 `Direct play | ${c.video_codec || ""} ${c.resolution || ""}`.trim();
             }
           }
         } catch { /* capability info is best-effort; the stream still loads */ }
 
-        loadSubtitles(fileId);
+        loadSubtitles(fileId, profilePrefs && profilePrefs.subtitle_lang);
 
         const saved = await fetchPlayback();
         const startSec = saved && saved.position_sec > 5 && !saved.watched
